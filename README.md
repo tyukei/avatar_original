@@ -113,6 +113,20 @@ firebase deploy --only hosting
 アクセス: `https://[PROJECT_ID].web.app`
 
 
+### 4. トラブルシューティング
+
+#### デプロイ権限エラー (run.services.get denied)
+
+`firebase deploy` 時に `Permission 'run.services.get' denied` エラーが出る場合、Firebase のサービスアカウントに Cloud Run の参照権限が不足しています。以下のコマンドで権限を付与してください。
+
+```bash
+gcloud projects add-iam-policy-binding [PROJECT_ID] \
+  --member="serviceAccount:firebase-adminsdk-fbsvc@[PROJECT_ID].iam.gserviceaccount.com" \
+  --role="roles/run.viewer"
+```
+
+※ `[PROJECT_ID]` は実際のプロジェクトIDに置き換えてください。
+
 ### 5. アクセス
 
 ブラウザで http://localhost:3000 を開く
