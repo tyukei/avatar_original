@@ -58,3 +58,4 @@ ENV/
 .coverage
 htmlcov/
 *.spec
+.env.secrets
