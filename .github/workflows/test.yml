@@ -1,4 +1,4 @@
-name: Python Syntax Check
+name: Test
 
 on:
   pull_request:
@@ -9,8 +9,8 @@ on:
       - main
 
 jobs:
-  syntax-check:
-    name: Syntax Check
+  test-backend:
+    name: Test Backend
     runs-on: ubuntu-latest
     
     steps:
@@ -36,8 +36,8 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
 
-  frontend-check:
-    name: Frontend Check
+  test-frontend:
+    name: Test Frontend
     runs-on: ubuntu-latest
     
     steps:

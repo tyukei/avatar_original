@@ -80,7 +80,8 @@ jobs:
 
       - name: Create Pull Request
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use PAT to trigger other workflows (like tests)
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           # Check if PR already exists
           EXISTS=$(gh pr list --head "${{ github.ref_name }}" --base "${{ github.event.inputs.base }}" --state open --json number --jq '.[0].number')
