@@ -38,7 +38,7 @@ cp .env.example .env
 Python環境管理ツール `uv` を使用します。
 
 ```bash
-cd backend_python
+cd backend
 uv run uvicorn main:app --reload --port 8080
 ```
 
