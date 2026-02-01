@@ -51,20 +51,45 @@ npm run build
 
 forkまたはcloneしたリポジトリで、以下の手順で設定する。
 
-### geminiのapiキー設定
+### シークレットキーの設定 (GitHub Secrets)
 
 
 
-Settings > Secrets and variables > Actions > New repository secret を選択する。
+GitHub CLI (`gh`) を使用して、必要なシークレットを一括で設定することをお勧めします。
 
-以下の内容で設定する
+#### 1. 設定用ファイルの作成
 
+プロジェクトルートに `.env.secrets` というファイルを作成し、以下のシークレットを記述します。
+（**注意**: `.env.secrets` は `.gitignore` に追加されており、リポジトリにはコミットされません）
+
+```bash
+# .env.secrets
+FIREBASE_PROJECT_ID=ここにプロジェクトID (gen-lang-client-02446999-262c1)
+GEMINI_API_KEY=ここにGeminiのAPIキー (AIza...)
 ```
-Name: GEMINI_API_KEY
-Value: [GCP_API_KEY]
+
+#### 2. シークレットの一括アップロード
+
+ターミナルで以下のコマンドを実行し、`.env.secrets` の内容を一括で登録します。
+
+```bash
+gh secret set -f .env.secrets
 ```
 
-![alt text](img/gemini_api_key.png)
+#### 3. サービスアカウントキー (JSON) の登録
+
+`FIREBASE_SERVICE_ACCOUNT` はJSON形式であるため、ファイルから直接登録します。
+
+```bash
+# JSONファイル (例: sa-key.json) から読み込んで登録
+gh secret set FIREBASE_SERVICE_ACCOUNT < sa-key.json
+
+# 登録後にローカルのキーファイルは削除推奨
+rm sa-key.json
+```
+
+これにより、手動でのコピー＆ペーストによるミスを防ぐことができます。
+Web画面 (Settings > Secrets and variables > Actions) で確認すると、登録されたシークレットが表示されます。
 
 
 ### github actionによるpr作成権限の追加
