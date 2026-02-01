@@ -462,86 +462,38 @@ body {
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Avatar Customization Settings */
-.settings-container {
-  margin-top: 2rem;
-  width: 100%;
-  padding: 1.5rem;
-  background: var(--card-bg);
-  border-radius: 1rem;
-  backdrop-filter: blur(10px);
-}
-
-.settings-title {
-  font-size: 1rem;
-  color: var(--text-secondary);
-  margin-bottom: 1rem;
-  text-align: center;
-}
-
-.avatar-upload-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
+/* Settings Fields */
+.settings-section {
   margin-bottom: 1.5rem;
 }
 
-@media (max-width: 480px) {
-  .avatar-upload-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.upload-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.upload-label {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  text-align: left;
-  padding-left: 0.25rem;
-}
-
-.upload-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  border-radius: 0.5rem;
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.upload-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--accent-color);
-}
-
-.upload-button.has-image {
-  background: rgba(99, 102, 241, 0.1);
-  border-style: solid;
-  border-color: var(--accent-color);
-  color: var(--accent-color);
-}
-
-.reset-button {
-  padding: 0.5rem 1.5rem;
+.settings-label {
+  display: block;
   font-size: 0.9rem;
-  background: transparent;
-  color: #ef4444;
-  border: 1px solid #ef4444;
-  border-radius: 9999px;
-  cursor: pointer;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.settings-input,
+.settings-select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  outline: none;
   transition: all 0.2s ease;
 }
 
-.reset-button:hover {
-  background: rgba(239, 68, 68, 0.1);
+.settings-input:focus,
+.settings-select:focus {
+  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.settings-select option {
+  background: #0a0a0f;
+  color: var(--text-primary);
 }

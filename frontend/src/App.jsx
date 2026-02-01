@@ -26,6 +26,13 @@ const VIEW = {
     SETTINGS: 'settings'
 }
 
+const PERSONALITIES = [
+    { id: 'friendly', label: '親しみやすい (フレンドリー)', prompt: 'フレンドリーで親しみやすい口調を心がけてください' },
+    { id: 'cool', label: '冷静・知的', prompt: '冷静で知的な口調で話してください' },
+    { id: 'energetic', label: '元気・活発', prompt: '元気で活発な口調で話してください' },
+    { id: 'polite', label: '丁寧 (執事/メイド)', prompt: '執事やメイドのように丁寧で落ち着いた口調で話してください' }
+]
+
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -48,6 +55,23 @@ function App() {
             return {}
         }
     })
+
+    // ユーザー設定
+    const [userName, setUserName] = useState(() => localStorage.getItem('user_name') || 'ユーザー')
+    const [personality, setPersonality] = useState(() => localStorage.getItem('user_personality') || PERSONALITIES[0].prompt)
+
+    // 設定保存ハンドラ
+    const handleUserNameChange = (e) => {
+        const val = e.target.value
+        setUserName(val)
+        localStorage.setItem('user_name', val)
+    }
+
+    const handlePersonalityChange = (e) => {
+        const val = e.target.value
+        setPersonality(val)
+        localStorage.setItem('user_personality', val)
+    }
 
     // APIコストトラッキング
     const [tokenStats, setTokenStats] = useState({ inputTokens: 0, outputTokens: 0 })
@@ -102,6 +126,14 @@ function App() {
 
         ws.onopen = () => {
             console.log('WebSocket connected')
+
+            // 設定を送信
+            ws.send(JSON.stringify({
+                type: 'config',
+                userName: userName,
+                personality: personality
+            }))
+
             setAppState(STATE.READY)
             startAudioCapture()
         }
@@ -183,7 +215,7 @@ function App() {
                 setAppState(STATE.INIT)
             }
         }
-    }, [])
+    }, [userName, personality])
 
     // 音声キャプチャ開始
     const startAudioCapture = async () => {
@@ -491,7 +523,35 @@ function App() {
             ) : (
                 // --- 設定ビュー ---
                 <div className="settings-container">
-                    <h4 className="settings-title">アバター画像設定</h4>
+                    <h4 className="settings-title">設定</h4>
+
+                    <div className="settings-section">
+                        <label className="settings-label">あなたの名前 (呼び名)</label>
+                        <input
+                            type="text"
+                            className="settings-input"
+                            value={userName}
+                            onChange={handleUserNameChange}
+                            placeholder="例: 田中さん"
+                        />
+                    </div>
+
+                    <div className="settings-section">
+                        <label className="settings-label">アバターの性格・口調</label>
+                        <select
+                            className="settings-select"
+                            value={personality}
+                            onChange={handlePersonalityChange}
+                        >
+                            {PERSONALITIES.map(p => (
+                                <option key={p.id} value={p.prompt}>
+                                    {p.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <h4 className="settings-title" style={{ marginTop: '2rem' }}>アバター画像設定</h4>
                     <div className="avatar-upload-grid">
                         {[
                             { id: 'closed', label: '通常 (口閉じ)' },

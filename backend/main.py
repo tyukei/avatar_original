@@ -40,6 +40,37 @@ GEMINI_URL = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativela
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
+    # 1. Wait for initial configuration message
+    user_name = "ユーザー"
+    personality = "フレンドリーで親しみやすい口調を心がけてください"
+    
+    try:
+        # Wait for the first message which should be the config
+        # Set a timeout to avoid hanging if client is old version
+        init_data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+        init_msg = json.loads(init_data)
+        
+        if init_msg.get("type") == "config":
+            user_name = init_msg.get("userName") or user_name
+            personality = init_msg.get("personality") or personality
+            logger.info(f"Config received: Name={user_name}, Personality={personality}")
+        else:
+            # If not config (e.g. audio), we might have lost the first chunk or it's an old client.
+            # In this case, we proceed with defaults, but we need to handle this message later.
+            # For simplicity, we assume the frontend is updated to send config first.
+            logger.warning("First message was not config. Using defaults.")
+    except Exception as e:
+        logger.warning(f"Failed to receive config (timeout or error): {e}. Using defaults.")
+
+    # Construct System Instruction
+    system_instruction_text = f"""あなたは音声アバターです。以下のルールに従ってください：
+- 日本語で会話してください
+- 返答は短く、話し言葉を使ってください
+- 不必要に長い説明は避けてください
+- 会話の相手の名前は「{user_name}」です。名前で呼びかけてください。
+- 性格・口調の設定: {personality}
+- 会話の相手として自然に振る舞ってください"""
+
     try:
         async with websockets.connect(GEMINI_URL) as gemini_ws:
             # Send setup message
@@ -58,12 +89,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     },
                     "systemInstruction": {
                         "parts": [
-                            {"text": """あなたは音声アバターです。以下のルールに従ってください：
-- 日本語で会話してください
-- 返答は短く、話し言葉を使ってください
-- 不必要に長い説明は避けてください
-- フレンドリーで親しみやすい口調を心がけてください
-- 会話の相手として自然に振る舞ってください"""}
+                            {"text": system_instruction_text}
                         ]
                     },
                     "outputAudioTranscription": {},
@@ -84,13 +110,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         client_msg = json.loads(data)
                         
                         if client_msg.get("type") == "audio":
-                            # Decode Base64 from client and re-encode for Gemini (Go logic does this)
-                            # Actually Go decodes then re-encodes, which might be redundant but filters validity?
-                            # Go: audioData, _ := base64.StdEncoding.DecodeString(clientMsg.Audio)
-                            # Go: Data: base64.StdEncoding.EncodeToString(audioData)
-                            # In Python we can just verify it or pass it through if it's already base64.
-                            # The Go code explicity decodes and encodes. Let's trust the input is base64.
-                            
                             gemini_input = {
                                 "realtimeInput": {
                                     "mediaChunks": [
