@@ -572,7 +572,15 @@ function App() {
                                     htmlFor={`upload-${item.id}`}
                                     className={`upload-button ${customAvatars[item.id] ? 'has-image' : ''}`}
                                 >
-                                    {customAvatars[item.id] ? '変更' : '選択'}
+                                    {customAvatars[item.id] ? (
+                                        <img
+                                            src={customAvatars[item.id]}
+                                            alt={item.label}
+                                            className="upload-preview"
+                                        />
+                                    ) : (
+                                        <span>選択</span>
+                                    )}
                                 </label>
                             </div>
                         ))}
