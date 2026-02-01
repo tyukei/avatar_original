@@ -389,7 +389,7 @@ function App() {
                             setIsMenuOpen(false)
                         }}
                     >
-                        <span>💬</span> 会話
+                        会話
                     </button>
                     <button
                         className={`menu-item ${view === VIEW.SETTINGS ? 'active' : ''}`}
@@ -398,14 +398,7 @@ function App() {
                             setIsMenuOpen(false)
                         }}
                     >
-                        <span>⚙️</span> アバター設定
-                    </button>
-                    <button
-                        className="menu-item"
-                        onClick={() => window.location.reload()}
-                        style={{ borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: '0.25rem', paddingTop: '0.75rem' }}
-                    >
-                        <span>🔄</span> リロード
+                        アバター設定
                     </button>
                 </div>
             </div>
