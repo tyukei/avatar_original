@@ -4,31 +4,35 @@
 
 Gemini Live API を使用した音声会話アバターアプリケーションです。
 
+
 ## 構成
 
 ```
-avator_basic_python/
-├── backend_python/  # Python Proxy Server (FastAPI + uv)
+avatar_original/
+├── backend/         # Python FastAPI Server (Cloud Run)
+│   ├── Dockerfile
 │   ├── main.py
 │   ├── pyproject.toml
 │   └── .env.example
-└── frontend/        # React (Vite) Application
-    ├── src/
-    │   ├── App.jsx
-    │   ├── main.jsx
-    │   └── index.css
-    └── public/
-        ├── audio-processor.js
-        ├── avatar-closed.png  # ← 用意してください（口閉じ）
-        └── avatar-open.png    # ← 用意してください（口開き）
+├── frontend/        # React (Vite) Application (Firebase Hosting)
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   └── public/
+│       ├── audio-processor.js
+│       ├── avatar-closed.png
+│       └── avatar-open.png
+├── firebase.json    # Firebase Hosting & Rewrite Config
+└── .firebaserc      # Firebase Project Alias
 ```
 
-## セットアップ
+## セットアップ (ローカル開発)
 
 ### 1. 環境変数の設定
 
 ```bash
-cd backend_python
+cd backend
 cp .env.example .env
 # .env ファイルを編集して GEMINI_API_KEY を設定
 ```
@@ -57,6 +61,57 @@ npm run dev
 `frontend/public/` に以下の2枚の画像を配置してください：
 - `avatar-closed.png` - 口を閉じた状態
 - `avatar-open.png` - 口を開いた状態
+
+## デプロイ (Firebase + Cloud Run)
+
+本番環境は Firebase Hosting (Frontend) と Cloud Run (Backend) で構成されます。
+
+### 1. 事前準備
+
+デプロイには `gcloud` コマンドと `firebase` コマンドの認証が必要です。
+
+```bash
+# Google Cloud SDK (gcloud) のログインとプロジェクト設定
+gcloud auth login
+gcloud config set project [PROJECT_ID]
+
+# Firebase CLI のインストールとログイン
+npm install -g firebase-tools
+firebase login
+```
+
+- Google Cloud プロジェクトの作成
+- Firebase プロジェクトの紐付け
+- `.firebaserc` のプロジェクトID設定
+
+### 2. バックエンドのデプロイ (Cloud Run)
+
+```bash
+# Cloud Build でコンテナをビルド
+gcloud builds submit backend --tag gcr.io/[PROJECT_ID]/avatar-backend
+
+# Cloud Run にデプロイ
+gcloud run deploy avatar-backend \
+  --image gcr.io/[PROJECT_ID]/avatar-backend \
+  --region asia-northeast1 \
+  --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY=[YOUR_API_KEY]
+```
+
+### 3. フロントエンドのデプロイ (Firebase Hosting)
+
+```bash
+# ビルド
+cd frontend
+npm run build
+cd ..
+
+# デプロイ
+firebase deploy --only hosting
+```
+
+アクセス: `https://[PROJECT_ID].web.app`
+
 
 ### 5. アクセス
 
