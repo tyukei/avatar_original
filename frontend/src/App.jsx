@@ -415,6 +415,19 @@ function App() {
         return customAvatars.closed || '/avatar-closed.png'
     }
 
+    const handleAvatarDelete = (type) => {
+        setCustomAvatars(prev => {
+            const next = { ...prev }
+            delete next[type]
+            try {
+                localStorage.setItem('custom_avatars', JSON.stringify(next))
+            } catch (e) {
+                console.error('Failed to save to localStorage:', e)
+            }
+            return next
+        })
+    }
+
     return (
         <div className="app-container">
             {/* メニューボタン */}
@@ -582,20 +595,39 @@ function App() {
                                     style={{ display: 'none' }}
                                     id={`upload-${item.id}`}
                                 />
-                                <label
-                                    htmlFor={`upload-${item.id}`}
-                                    className={`upload-button ${customAvatars[item.id] ? 'has-image' : ''}`}
-                                >
-                                    {customAvatars[item.id] ? (
-                                        <img
-                                            src={customAvatars[item.id]}
-                                            alt={item.label}
-                                            className="upload-preview"
-                                        />
-                                    ) : (
-                                        <span>選択</span>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <label
+                                        htmlFor={`upload-${item.id}`}
+                                        className={`upload-button ${customAvatars[item.id] ? 'has-image' : ''}`}
+                                    >
+                                        {customAvatars[item.id] ? (
+                                            <img
+                                                src={customAvatars[item.id]}
+                                                alt={item.label}
+                                                className="upload-preview"
+                                            />
+                                        ) : (
+                                            <span>選択</span>
+                                        )}
+                                    </label>
+                                    {customAvatars[item.id] && (
+                                        <button
+                                            onClick={() => handleAvatarDelete(item.id)}
+                                            className="delete-button"
+                                            style={{
+                                                padding: '4px 8px',
+                                                backgroundColor: '#ff4444',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                fontSize: '0.8rem'
+                                            }}
+                                        >
+                                            削除
+                                        </button>
                                     )}
-                                </label>
+                                </div>
                             </div>
                         ))}
                     </div>
