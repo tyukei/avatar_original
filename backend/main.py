@@ -1,7 +1,7 @@
 import os
 import json
 import tomllib
-import base64
+
 import asyncio
 import logging
 import websockets
