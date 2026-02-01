@@ -30,13 +30,14 @@ jobs:
           cd backend
           uv sync --frozen
           
-      - name: Check Syntax (compileall)
+      - name: Check Format (Ruff)
         run: |
-          # Check backend directory
-          python -m compileall backend -q
+          cd backend
+          uv run ruff check .
+          uv run ruff format --check .
 
-  frontend-build:
-    name: Frontend Build
+  frontend-check:
+    name: Frontend Check
     runs-on: ubuntu-latest
     
     steps:
@@ -53,7 +54,8 @@ jobs:
           cd frontend
           npm ci
           
-      - name: Build (Syntax Check)
+      - name: Lint & Format Check
         run: |
           cd frontend
+          npm run lint
           npm run build
