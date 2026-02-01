@@ -1,0 +1,59 @@
+name: Python Syntax Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "backend_python/.python-version"
+          
+      - name: Install dependencies
+        run: |
+          cd backend_python
+          uv sync --frozen
+          
+      - name: Check Syntax (compileall)
+        run: |
+          # Check backend_python directory
+          python -m compileall backend_python -q
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+          
+      - name: Build (Syntax Check)
+        run: |
+          cd frontend
+          npm run build
