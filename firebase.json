@@ -8,13 +8,6 @@
         ],
         "rewrites": [
             {
-                "source": "/ws",
-                "run": {
-                    "serviceId": "avatar-backend",
-                    "region": "asia-northeast1"
-                }
-            },
-            {
                 "source": "/version",
                 "run": {
                     "serviceId": "avatar-backend",
