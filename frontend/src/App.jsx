@@ -60,6 +60,20 @@ function App() {
     const [userName, setUserName] = useState(() => localStorage.getItem('user_name') || 'ユーザー')
     const [personality, setPersonality] = useState(() => localStorage.getItem('user_personality') || PERSONALITIES[0].prompt)
 
+    // バージョン情報
+    const [appVersion, setAppVersion] = useState('loading...')
+
+    useEffect(() => {
+        // バックエンドのバージョンを取得 (これを正とする)
+        fetch('/version')
+            .then(res => res.json())
+            .then(data => setAppVersion(data.version))
+            .catch(err => {
+                console.error('Failed to fetch backend version:', err)
+                setAppVersion('unknown')
+            })
+    }, [])
+
     // 設定保存ハンドラ
     const handleUserNameChange = (e) => {
         const val = e.target.value
@@ -594,6 +608,10 @@ function App() {
                             すべてリセット
                         </button>
                     )}
+
+                    <div className="version-info" style={{ marginTop: '2rem', fontSize: '0.8rem', color: '#666', textAlign: 'center' }}>
+                        <p>Version: {appVersion}</p>
+                    </div>
                 </div>
             )}
         </div>

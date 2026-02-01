@@ -1,5 +1,6 @@
 import os
 import json
+import tomllib
 import base64
 import asyncio
 import logging
@@ -35,6 +36,17 @@ app.add_middleware(
 )
 
 GEMINI_URL = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={API_KEY}"
+
+@app.get("/version")
+async def get_version():
+    try:
+        with open("pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+            version = data.get("project", {}).get("version", "unknown")
+            return {"version": version}
+    except Exception as e:
+        logger.error(f"Failed to read version: {e}")
+        return {"version": "unknown"}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
