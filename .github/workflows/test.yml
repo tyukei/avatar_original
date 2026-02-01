@@ -23,17 +23,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: "backend_python/.python-version"
+          python-version-file: "backend/.python-version"
           
       - name: Install dependencies
         run: |
-          cd backend_python
+          cd backend
           uv sync --frozen
           
       - name: Check Syntax (compileall)
         run: |
-          # Check backend_python directory
-          python -m compileall backend_python -q
+          # Check backend directory
+          python -m compileall backend -q
 
   frontend-build:
     name: Frontend Build
