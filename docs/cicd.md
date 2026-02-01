@@ -45,3 +45,32 @@ uv run python -m compileall . -q
 npm install
 npm run build
 ```
+
+
+## github設定
+
+forkまたはcloneしたリポジトリで、以下の手順で設定する。
+
+### geminiのapiキー設定
+
+
+
+Settings > Secrets and variables > Actions > New repository secret を選択する。
+
+以下の内容で設定する
+
+```
+Name: GEMINI_API_KEY
+Value: [GCP_API_KEY]
+```
+
+![alt text](img/gemini_api_key.png)
+
+
+### github actionによるpr作成権限の追加
+
+Settings > Actions > General > Workflow permissions > Read and write permissions を有効にする
+
+saveをクリックする
+
+![alt text](img/github_action_permission.png)
