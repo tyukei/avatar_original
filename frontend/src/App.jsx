@@ -132,8 +132,11 @@ function App() {
         setAppState(STATE.CONNECTING)
         setError(null)
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${protocol}//${window.location.host}/ws`
+        let wsUrl = import.meta.env.VITE_WS_URL
+        if (!wsUrl) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+            wsUrl = `${protocol}//${window.location.host}/ws`
+        }
 
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
@@ -149,7 +152,7 @@ function App() {
             }))
 
             setAppState(STATE.READY)
-            startAudioCapture()
+            setAppState(STATE.READY)
         }
 
         ws.onmessage = async (event) => {
@@ -272,11 +275,13 @@ function App() {
 
             source.connect(workletNode)
             workletNode.connect(audioContext.destination)
+            return true
 
         } catch (err) {
             console.error('Audio capture error:', err)
             setError('マイクへのアクセスが拒否されました')
             setAppState(STATE.ERROR)
+            return false
         }
     }
 
@@ -342,8 +347,12 @@ function App() {
         }
     }, [])
 
-    const handleStart = () => {
-        connectWebSocket()
+    const handleStart = async () => {
+        // 先にマイク権限を要求
+        const success = await startAudioCapture()
+        if (success) {
+            connectWebSocket()
+        }
     }
 
     const handleStop = () => {

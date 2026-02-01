@@ -21,6 +21,14 @@ build/
 .DS_Store
 Thumbs.db
 
+# Firebase
+.firebaserc
+.firebase/
+firebase-debug.log
+
+# Frontend Config
+frontend/.env.production
+
 # Logs
 *.log
 npm-debug.log*
@@ -50,3 +58,4 @@ ENV/
 .coverage
 htmlcov/
 *.spec
+.env.secrets
