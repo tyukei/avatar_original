@@ -21,7 +21,21 @@ const STATUS_LABELS = {
     [STATE.ERROR]: 'エラーが発生しました'
 }
 
+const VIEW = {
+    CHAT: 'chat',
+    SETTINGS: 'settings'
+}
+
+const PERSONALITIES = [
+    { id: 'friendly', label: '親しみやすい (フレンドリー)', prompt: 'フレンドリーで親しみやすい口調を心がけてください' },
+    { id: 'cool', label: '冷静・知的', prompt: '冷静で知的な口調で話してください' },
+    { id: 'energetic', label: '元気・活発', prompt: '元気で活発な口調で話してください' },
+    { id: 'polite', label: '丁寧 (執事/メイド)', prompt: '執事やメイドのように丁寧で落ち着いた口調で話してください' }
+]
+
 function App() {
+    const [view, setView] = useState(VIEW.CHAT)
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [appState, setAppState] = useState(STATE.INIT)
     const [subtitle, setSubtitle] = useState('')
     const [conversationHistory, setConversationHistory] = useState([])
@@ -34,7 +48,30 @@ function App() {
     const [thinkingFrame, setThinkingFrame] = useState(0)
 
     // カスタムアバター
-    const [customAvatar, setCustomAvatar] = useState(localStorage.getItem('custom_avatar') || null)
+    const [customAvatars, setCustomAvatars] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('custom_avatars')) || {}
+        } catch (e) {
+            return {}
+        }
+    })
+
+    // ユーザー設定
+    const [userName, setUserName] = useState(() => localStorage.getItem('user_name') || 'ユーザー')
+    const [personality, setPersonality] = useState(() => localStorage.getItem('user_personality') || PERSONALITIES[0].prompt)
+
+    // 設定保存ハンドラ
+    const handleUserNameChange = (e) => {
+        const val = e.target.value
+        setUserName(val)
+        localStorage.setItem('user_name', val)
+    }
+
+    const handlePersonalityChange = (e) => {
+        const val = e.target.value
+        setPersonality(val)
+        localStorage.setItem('user_personality', val)
+    }
 
     // APIコストトラッキング
     const [tokenStats, setTokenStats] = useState({ inputTokens: 0, outputTokens: 0 })
@@ -89,6 +126,14 @@ function App() {
 
         ws.onopen = () => {
             console.log('WebSocket connected')
+
+            // 設定を送信
+            ws.send(JSON.stringify({
+                type: 'config',
+                userName: userName,
+                personality: personality
+            }))
+
             setAppState(STATE.READY)
             startAudioCapture()
         }
@@ -170,7 +215,7 @@ function App() {
                 setAppState(STATE.INIT)
             }
         }
-    }, [])
+    }, [userName, personality])
 
     // 音声キャプチャ開始
     const startAudioCapture = async () => {
@@ -316,148 +361,241 @@ function App() {
         setError(null)
     }
 
-    const handleAvatarUpload = (event) => {
+    const handleAvatarUpload = (type, event) => {
         const file = event.target.files[0]
         if (file) {
             const reader = new FileReader()
             reader.onloadend = () => {
                 const base64 = reader.result
-                setCustomAvatar(base64)
-                localStorage.setItem('custom_avatar', base64)
+                setCustomAvatars(prev => {
+                    const next = { ...prev, [type]: base64 }
+                    try {
+                        localStorage.setItem('custom_avatars', JSON.stringify(next))
+                    } catch (e) {
+                        console.error('Failed to save to localStorage:', e)
+                    }
+                    return next
+                })
             }
             reader.readAsDataURL(file)
         }
     }
 
-    const handleAvatarReset = () => {
-        setCustomAvatar(null)
-        localStorage.removeItem('custom_avatar')
+    const handleResetAll = () => {
+        setCustomAvatars({})
+        localStorage.removeItem('custom_avatars')
     }
 
     const getAvatarImage = () => {
-        if (customAvatar) {
-            return customAvatar
-        }
         if (appState === STATE.THINKING) {
-            return `/avatar-thinking-${thinkingFrame + 1}.png`
+            const frame = thinkingFrame + 1
+            if (frame === 1 && customAvatars.thinking1) return customAvatars.thinking1
+            if (frame === 2 && customAvatars.thinking2) return customAvatars.thinking2
+            return `/avatar-thinking-${frame}.png`
         }
-        return mouthOpen ? '/avatar-open.png' : '/avatar-closed.png'
+
+        if (mouthOpen) {
+            return customAvatars.open || '/avatar-open.png'
+        }
+
+        return customAvatars.closed || '/avatar-closed.png'
     }
 
     return (
         <div className="app-container">
-            <div className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' : ''}`}>
-                <img
-                    src={getAvatarImage()}
-                    alt="アバター"
-                    className="avatar-image"
-                    onError={(e) => {
-                        e.target.style.display = 'none'
-                    }}
-                />
-            </div>
-
-            <div className="status-container">
-                <div className="status-indicator">
-                    <span className={`status-dot ${appState !== STATE.INIT ? 'active' : ''}`}></span>
-                    <span>{STATUS_LABELS[appState]}</span>
+            {/* メニューボタン */}
+            <div className="menu-container">
+                <button
+                    className="hamburger-button"
+                    onClick={() => setIsMenuOpen(!isMenuOpen)}
+                >
+                    <span className={`hamburger-line ${isMenuOpen ? 'active' : ''}`}></span>
+                    <span className={`hamburger-line ${isMenuOpen ? 'active' : ''}`}></span>
+                    <span className={`hamburger-line ${isMenuOpen ? 'active' : ''}`}></span>
+                </button>
+                <div className={`menu-dropdown ${isMenuOpen ? 'active' : ''}`}>
+                    <button
+                        className={`menu-item ${view === VIEW.CHAT ? 'active' : ''}`}
+                        onClick={() => {
+                            setView(VIEW.CHAT)
+                            setIsMenuOpen(false)
+                        }}
+                    >
+                        会話
+                    </button>
+                    <button
+                        className={`menu-item ${view === VIEW.SETTINGS ? 'active' : ''}`}
+                        onClick={() => {
+                            setView(VIEW.SETTINGS)
+                            setIsMenuOpen(false)
+                        }}
+                    >
+                        アバター設定
+                    </button>
                 </div>
             </div>
 
-            {/* API コスト表示 */}
-            {(tokenStats.inputTokens > 0 || tokenStats.outputTokens > 0) && (
-                <div className="cost-container">
-                    <div className="cost-row">
-                        <span className="cost-label">入力トークン:</span>
-                        <span className="cost-value">{tokenStats.inputTokens.toLocaleString()}</span>
+            {view === VIEW.CHAT ? (
+                <>
+                    <div className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' : ''}`}>
+                        <img
+                            src={getAvatarImage()}
+                            alt="アバター"
+                            className="avatar-image"
+                            onError={(e) => {
+                                e.target.style.display = 'none'
+                            }}
+                        />
                     </div>
-                    <div className="cost-row">
-                        <span className="cost-label">出力トークン:</span>
-                        <span className="cost-value">{tokenStats.outputTokens.toLocaleString()}</span>
-                    </div>
-                    <div className="cost-row cost-total">
-                        <span className="cost-label">累積料金:</span>
-                        <span className="cost-value">${calculateCost(tokenStats.inputTokens, tokenStats.outputTokens).toFixed(6)}</span>
-                    </div>
-                </div>
-            )}
 
-            {subtitle && (
-                <div className="subtitle-container">
-                    <p className="subtitle-text">{subtitle}</p>
-                </div>
-            )}
+                    <div className="status-container">
+                        <div className="status-indicator">
+                            <span className={`status-dot ${appState !== STATE.INIT ? 'active' : ''}`}></span>
+                            <span>{STATUS_LABELS[appState]}</span>
+                        </div>
+                    </div>
 
-            {/* 会話履歴 */}
-            {conversationHistory.length > 0 && (
-                <div className="history-container">
-                    <h3 className="history-title">会話履歴</h3>
-                    <div className="history-list">
-                        {conversationHistory.map((item, index) => (
-                            <div key={index} className={`history-item ${item.role}`}>
-                                <span className="history-role">{item.role === 'user' ? 'あなた:' : 'AI:'}</span>
-                                <span className="history-text">{item.text}</span>
+                    {/* API コスト表示 */}
+                    {(tokenStats.inputTokens > 0 || tokenStats.outputTokens > 0) && (
+                        <div className="cost-container">
+                            <div className="cost-row">
+                                <span className="cost-label">入力トークン:</span>
+                                <span className="cost-value">{tokenStats.inputTokens.toLocaleString()}</span>
+                            </div>
+                            <div className="cost-row">
+                                <span className="cost-label">出力トークン:</span>
+                                <span className="cost-value">{tokenStats.outputTokens.toLocaleString()}</span>
+                            </div>
+                            <div className="cost-row cost-total">
+                                <span className="cost-label">累積料金:</span>
+                                <span className="cost-value">${calculateCost(tokenStats.inputTokens, tokenStats.outputTokens).toFixed(6)}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {subtitle && (
+                        <div className="subtitle-container">
+                            <p className="subtitle-text">{subtitle}</p>
+                        </div>
+                    )}
+
+                    {/* 会話履歴 */}
+                    {conversationHistory.length > 0 && (
+                        <div className="history-container">
+                            <h3 className="history-title">会話履歴</h3>
+                            <div className="history-list">
+                                {conversationHistory.map((item, index) => (
+                                    <div key={index} className={`history-item ${item.role}`}>
+                                        <span className="history-role">{item.role === 'user' ? 'あなた:' : 'AI:'}</span>
+                                        <span className="history-text">{item.text}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {appState === STATE.INIT && (
+                        <button className="start-button" onClick={handleStart}>
+                            開始する
+                        </button>
+                    )}
+
+                    {appState !== STATE.INIT && appState !== STATE.ERROR && (
+                        <button className="stop-button" onClick={handleStop}>
+                            終了する
+                        </button>
+                    )}
+
+                    {error && (
+                        <div className="error-container">
+                            <p>{error}</p>
+                            <button
+                                className="start-button"
+                                onClick={handleStart}
+                                style={{ marginTop: '1rem' }}
+                            >
+                                再試行
+                            </button>
+                        </div>
+                    )}
+
+                </>
+            ) : (
+                // --- 設定ビュー ---
+                <div className="settings-container">
+                    <h4 className="settings-title">設定</h4>
+
+                    <div className="settings-section">
+                        <label className="settings-label">あなたの名前 (呼び名)</label>
+                        <input
+                            type="text"
+                            className="settings-input"
+                            value={userName}
+                            onChange={handleUserNameChange}
+                            placeholder="例: 田中さん"
+                        />
+                    </div>
+
+                    <div className="settings-section">
+                        <label className="settings-label">アバターの性格・口調</label>
+                        <select
+                            className="settings-select"
+                            value={personality}
+                            onChange={handlePersonalityChange}
+                        >
+                            {PERSONALITIES.map(p => (
+                                <option key={p.id} value={p.prompt}>
+                                    {p.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <h4 className="settings-title" style={{ marginTop: '2rem' }}>アバター画像設定</h4>
+                    <div className="avatar-upload-grid">
+                        {[
+                            { id: 'closed', label: '通常 (口閉じ)' },
+                            { id: 'open', label: '発話 (口開き)' },
+                            { id: 'thinking1', label: '思考中 1' },
+                            { id: 'thinking2', label: '思考中 2' }
+                        ].map(item => (
+                            <div key={item.id} className="upload-item">
+                                <span className="upload-label">{item.label}</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => handleAvatarUpload(item.id, e)}
+                                    style={{ display: 'none' }}
+                                    id={`upload-${item.id}`}
+                                />
+                                <label
+                                    htmlFor={`upload-${item.id}`}
+                                    className={`upload-button ${customAvatars[item.id] ? 'has-image' : ''}`}
+                                >
+                                    {customAvatars[item.id] ? (
+                                        <img
+                                            src={customAvatars[item.id]}
+                                            alt={item.label}
+                                            className="upload-preview"
+                                        />
+                                    ) : (
+                                        <span>選択</span>
+                                    )}
+                                </label>
                             </div>
                         ))}
                     </div>
+
+                    {Object.keys(customAvatars).length > 0 && (
+                        <button
+                            onClick={handleResetAll}
+                            className="reset-button"
+                        >
+                            すべてリセット
+                        </button>
+                    )}
                 </div>
             )}
-
-            {appState === STATE.INIT && (
-                <button className="start-button" onClick={handleStart}>
-                    開始する
-                </button>
-            )}
-
-            {appState !== STATE.INIT && appState !== STATE.ERROR && (
-                <button className="stop-button" onClick={handleStop}>
-                    終了する
-                </button>
-            )}
-
-            {error && (
-                <div className="error-container">
-                    <p>{error}</p>
-                    <button
-                        className="start-button"
-                        onClick={handleStart}
-                        style={{ marginTop: '1rem' }}
-                    >
-                        再試行
-                    </button>
-                </div>
-            )}
-
-            {/* アバター設定 */}
-            <div className="settings-container" style={{ marginTop: '2rem', textAlign: 'center' }}>
-                <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarUpload}
-                    style={{ display: 'none' }}
-                    id="avatar-upload"
-                />
-                <label htmlFor="avatar-upload" className="start-button" style={{ fontSize: '0.9rem', padding: '0.5rem 1.5rem', background: '#4b5563', display: 'inline-block' }}>
-                    アバター変更
-                </label>
-                {customAvatar && (
-                    <button
-                        onClick={handleAvatarReset}
-                        style={{
-                            marginLeft: '1rem',
-                            padding: '0.5rem 1.5rem',
-                            fontSize: '0.9rem',
-                            background: 'transparent',
-                            color: '#ef4444',
-                            border: '1px solid #ef4444',
-                            borderRadius: '9999px',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        リセット
-                    </button>
-                )}
-            </div>
         </div>
     )
 }
