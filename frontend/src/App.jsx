@@ -539,10 +539,14 @@ function App() {
 
             const data = await res.json()
 
+            console.log("Response data:", data) // LOG
+
             if (data.audio) {
                 // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
                 const binaryString = atob(data.audio)
                 const len = binaryString.length
+                console.log("Audio binary length:", len) // LOG
+
                 const bytes = new Uint8Array(len)
                 for (let i = 0; i < len; i++) {
                     bytes[i] = binaryString.charCodeAt(i)
@@ -554,6 +558,7 @@ function App() {
                 for (let i = 0; i < int16Array.length; i++) {
                     float32Array[i] = int16Array[i] / 32768.0
                 }
+                console.log("Float32 samples:", float32Array.length) // LOG
 
                 playbackQueueRef.current.push(float32Array)
 
@@ -565,6 +570,8 @@ function App() {
                 if (!isPlayingRef.current) {
                     playAudioQueue()
                 }
+            } else {
+                console.warn("No audio in response")
             }
 
             // Update History with AI response
@@ -714,6 +721,16 @@ function App() {
             alert("ログインが必要です")
             return
         }
+
+        // Ensure AudioContext is initialized and resumed within User Gesture
+        if (!audioContextRef.current) {
+            audioContextRef.current = new AudioContext({ sampleRate: 24000 })
+        }
+        if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume()
+        }
+        console.log("AudioContext State:", audioContextRef.current.state)
+
         // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
         if (mode === MODE.LIVE) {
             const success = await startAudioCapture()

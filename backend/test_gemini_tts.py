@@ -25,7 +25,12 @@ try:
     }
     
     print(f"Testing with config: {config_dict}")
-    response = model.generate_content("こんにちは、これはテストです。", generation_config=config_dict)
+    # Try a longer, more conversational prompt like the avatar would generate
+    test_text = "こんにちは！今日はいい天気ですね。何かお手伝いしましょうか？"
+    prompt = f"Please read the following text: {test_text}"
+    print(f"Input prompt: {prompt}")
+    
+    response = model.generate_content(prompt, generation_config=config_dict)
     
     print("Response parts:", response.parts)
     for part in response.parts:

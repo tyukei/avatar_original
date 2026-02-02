@@ -77,11 +77,14 @@ def synthesize_speech(text: str) -> str:
     """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
     try:
         # Use the specific TTS model
+        logger.info(f"Synthesizing speech for: {text}") # LOG
         model = genai.GenerativeModel("models/gemini-2.5-flash-preview-tts")
         
         # Request AUDIO modality explicitly
+        # Wrap text in explicit instruction to prevent model from generating text
+        prompt = f"Please read the following text: {text}"
         resp = model.generate_content(
-            text,
+            prompt,
             generation_config={"response_modalities": ["AUDIO"]}
         )
         
