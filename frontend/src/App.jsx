@@ -391,6 +391,10 @@ function App() {
     }, [])
 
     const handleStart = async () => {
+        if (!auth.currentUser) {
+            alert("ログインが必要です")
+            return
+        }
         // 先にマイク権限を要求
         const success = await startAudioCapture()
         if (success) {
@@ -574,9 +578,40 @@ function App() {
                     )}
 
                     {appState === STATE.INIT && (
-                        <button className="start-button" onClick={handleStart}>
-                            開始する
-                        </button>
+                        !user ? (
+                            <div className="login-prompt" style={{ textAlign: 'center' }}>
+                                <p style={{ marginBottom: '1rem' }}>アプリを開始するにはログインが必要です</p>
+                                <button
+                                    onClick={handleSignIn}
+                                    style={{
+                                        padding: '0.75rem 1.5rem',
+                                        background: '#4285F4',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '24px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        fontSize: '1rem',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 18 18">
+                                        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.181l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.715H.957v2.332A8.997 8.997 0 0 0 9.003 18z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M9.003 3.58c1.321 0 2.508.455 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9.003 0 5.87 0 3.23 1.776 1.957 4.348l3.007 2.333c.708-2.131 2.692-3.715 5.036-3.715z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                    </svg>
+                                    Googleでログイン
+                                </button>
+                            </div>
+                        ) : (
+                            <button className="start-button" onClick={handleStart}>
+                                開始する
+                            </button>
+                        )
                     )}
 
                     {appState !== STATE.INIT && appState !== STATE.ERROR && (
