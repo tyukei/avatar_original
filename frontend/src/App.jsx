@@ -103,7 +103,7 @@ const PERSONALITIES = [
 
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
-    const [mode, setMode] = useState(MODE.LIVE)
+    const [mode, setMode] = useState(MODE.LFM)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [appState, setAppState] = useState(STATE.INIT)
     const [subtitle, setSubtitle] = useState('')
@@ -1082,29 +1082,20 @@ function App() {
                     >
                         設定
                     </button>
-                </div>
 
-                {/* モード切替スイッチ (メニュー内に追加) */}
-                {/* モード選択 (ドロップダウン) */}
-                <div style={{ marginTop: '1rem', padding: '0 1rem', color: 'white' }}>
-                    <label style={{ fontSize: '0.8rem', color: '#aaa', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
-                    <select
-                        value={mode}
-                        onChange={(e) => setMode(e.target.value)}
-                        style={{
-                            width: '100%',
-                            background: '#333',
-                            color: 'white',
-                            border: '1px solid #555',
-                            borderRadius: '4px',
-                            padding: '0.5rem',
-                            fontSize: '0.9rem'
-                        }}
-                    >
-                        <option value={MODE.LIVE}>Gemini Live (Fastest)</option>
-                        <option value={MODE.STANDARD}>Gemini TTS (Standard)</option>
-                        <option value={MODE.LFM}>LFM 2.5 (Speech-to-Speech)</option>
-                    </select>
+                    <div style={{ padding: '0.75rem 1rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                        <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
+                        <select
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value)}
+                            className="settings-select"
+                            style={{ padding: '0.4rem', fontSize: '0.9rem' }}
+                        >
+                            <option value={MODE.LFM}>LFM2.5(audio)</option>
+                            <option value={MODE.STANDARD}>Gemini2.5(tts)</option>
+                            <option value={MODE.LIVE}>Gemini2.5(live)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -1173,14 +1164,7 @@ function App() {
                     {/* ステータス表示 - LFM Mode Stop Button logic needed */}
                     <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white/50 text-sm font-light tracking-wider z-20 flex flex-col items-center gap-2">
                         <div>{STATUS_LABELS[appState]}</div>
-                        {mode === MODE.LFM && appState === STATE.USER_SPEAKING && (
-                            <button
-                                onClick={stopLFMListening}
-                                className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-1 rounded-full text-xs transition-colors"
-                            >
-                                録音終了
-                            </button>
-                        )}
+                        {/* Stop Button Removed for LFM as requested */}
                     </div>
 
                     {appState === STATE.INIT && (
@@ -1249,7 +1233,6 @@ function App() {
                         <h5 className="settings-label">アカウント</h5>
                         {user ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
-                                {user.photoURL && <img src={user.photoURL} alt="Profile" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />}
                                 <div>
                                     <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-primary)' }}>{user.displayName}</p>
                                     <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{user.email}</p>
