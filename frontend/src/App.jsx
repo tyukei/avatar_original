@@ -376,9 +376,20 @@ function App() {
 
             if (!res.ok) throw new Error(await res.text())
 
-            // Response is MP3 blob
-            const responseBlob = await res.blob()
-            const arrayBuffer = await responseBlob.arrayBuffer()
+            if (!res.ok) throw new Error(await res.text())
+
+            // Response is JSON now: { audio: "base64...", transcript: "..." }
+            const data = await res.json()
+
+            // Decode Audio
+            const binaryString = atob(data.audio)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+            }
+            // Create ArrayBuffer from bytes
+            const arrayBuffer = bytes.buffer
 
             // Play Audio
             // We reuse playAudioQueue if we decode it, or just play directly.
@@ -396,11 +407,16 @@ function App() {
             // Split into manageable chunks if needed, or push strictly one.
             playbackQueueRef.current.push(float32Data)
 
-            // Also update history optimistically?
-            // Since we don't get transcript back in this simple proxy mode, we can't update text history easily
-            // UNLESS we update backend to return JSON with audio+transcript.
-            // Current backend returns binary.
-            // For now, we won't show transcript for LFM mode.
+            // Update History & Subtitles with Transcript
+            if (data.transcript) {
+                const aiMsg = { role: 'assistant', text: data.transcript, timestamp: new Date() }
+                setConversationHistory(prev => [...prev, aiMsg])
+                setSubtitle(data.transcript)
+
+                // If we have user transcript from SpeechRecognition (not in LFM mode usually), we'd start there.
+                // But LFM mode infers user text. If backend returned user text too, we could use it.
+                // Current Gemini impl returns "model" text only.
+            }
 
             playAudioQueue()
 

@@ -243,14 +243,15 @@ async def speech_to_speech(audio: UploadFile = File(...)):
         # 2. Synthesize Audio
         # synthesize_speech returns base64 str (MP3 default)
         audio_b64 = synthesize_speech(response_text)
-        audio_data = base64.b64decode(audio_b64)
-
-        # 3. Return as binary
-        return Response(
-            content=audio_data,
-            media_type="audio/mp3",
-            headers={"Content-Disposition": "attachment; filename=response.mp3"}
-        )
+        
+        # 3. Return as JSON
+        # LFM 2.5 server logic also generates text ("text_out").
+        # So we align our mock response to return both.
+        return JSONResponse({
+            "audio": audio_b64,
+            "transcript": response_text,
+            "mime_type": "audio/mp3" # synthesize_speech returns MP3 (or WAV wrapped) base64
+        })
 
     except Exception as e:
         logger.error(f"Error in speech_to_speech: {e}")
