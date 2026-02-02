@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "uvicorn[standard]>=0.40.0",
     "websockets>=16.0",
+    "firebase-admin>=6.6.0",
 ]
 
 [dependency-groups]

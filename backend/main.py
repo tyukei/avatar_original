@@ -5,12 +5,20 @@ import tomllib
 import asyncio
 import logging
 import websockets
+import firebase_admin
+from firebase_admin import auth
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Initialize firebase app
+try:
+    firebase_admin.get_app()
+except ValueError:
+    firebase_admin.initialize_app()
 
 # Logger setup
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +65,7 @@ async def websocket_endpoint(websocket: WebSocket):
     # 1. Wait for initial configuration message
     user_name = "ユーザー"
     personality = "フレンドリーで親しみやすい口調を心がけてください"
+    user_id = None
 
     try:
         # Wait for the first message which should be the config
@@ -67,7 +76,20 @@ async def websocket_endpoint(websocket: WebSocket):
         if init_msg.get("type") == "config":
             user_name = init_msg.get("userName") or user_name
             personality = init_msg.get("personality") or personality
-            logger.info(f"Config received: Name={user_name}, Personality={personality}")
+            token = init_msg.get("token")
+            
+            if token:
+                try:
+                    decoded_token = auth.verify_id_token(token)
+                    user_id = decoded_token['uid']
+                    # Use name from token if not provided (or overwrite?)
+                    # For now just log it
+                    logger.info(f"User authenticated: {user_id}, Name in token: {decoded_token.get('name')}")
+                    # You could verify email_verified etc. here
+                except Exception as e:
+                    logger.warning(f"Token verification failed: {e}")
+
+            logger.info(f"Config received: Name={user_name}, Personality={personality}, UID={user_id}")
         else:
             # If not config (e.g. audio), we might have lost the first chunk or it's an old client.
             # In this case, we proceed with defaults, but we need to handle this message later.
