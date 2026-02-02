@@ -7,7 +7,7 @@ import logging
 import websockets
 import firebase_admin
 from firebase_admin import auth, credentials
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -161,6 +161,51 @@ async def chat_text_to_audio(request: TextToAudioRequest):
 
     except Exception as e:
         logger.error(f"Error in text_to_audio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/speech-to-speech")
+async def speech_to_speech(audio: UploadFile = File(...)):
+    try:
+        # Read uploaded audio
+        audio_bytes = await audio.read()
+        mime_type = audio.content_type or "audio/wav"
+
+        # 1. Generate text with Gemini
+        # Use a default system instruction similar to chat_text_to_audio
+        system_instruction = """あなたは音声アバターです。以下のルールに従ってください：
+- 日本語で会話してください
+- 返答は短く、話し言葉を使ってください
+- 不必要に長い説明は避けてください
+- 会話の相手は「ユーザー」です。
+- 性格・口調の設定: フレンドリーで親しみやすい口調を心がけてください
+- 会話の相手として自然に振る舞ってください"""
+
+        model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=system_instruction)
+
+        prompt_parts = [
+            {"mime_type": mime_type, "data": audio_bytes},
+            "ユーザーの音声を聴いて、返答してください。"
+        ]
+
+        response = model.generate_content(prompt_parts)
+        response_text = response.text
+        logger.info(f"Generated text: {response_text}")
+
+        # 2. Synthesize Audio
+        # synthesize_speech returns base64 str (MP3 default)
+        audio_b64 = synthesize_speech(response_text)
+        audio_data = base64.b64decode(audio_b64)
+
+        # 3. Return as binary
+        return Response(
+            content=audio_data,
+            media_type="audio/mp3",
+            headers={"Content-Disposition": "attachment; filename=response.mp3"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error in speech_to_speech: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
