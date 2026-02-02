@@ -365,9 +365,10 @@ function App() {
             const formData = new FormData()
             formData.append('audio', audioBlob)
 
-            // Add user settings if needed by backend (though current endpoint handles transcription itself)
-            // But main.py speech_to_speech doesn't take metadata yet, it infers context.
-            // For now just send audio.
+            // Include conversation history for context
+            if (conversationHistoryRef.current && conversationHistoryRef.current.length > 0) {
+                formData.append('history', JSON.stringify(conversationHistoryRef.current))
+            }
 
             const res = await fetch('/api/speech-to-speech', {
                 method: 'POST',

@@ -9,7 +9,7 @@ import logging
 import websockets
 import firebase_admin
 from firebase_admin import auth, credentials
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Response
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Response, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -201,8 +201,14 @@ async def chat_text_to_audio(request: TextToAudioRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+import json
+from fastapi import Form
+
 @app.post("/api/speech-to-speech")
-async def speech_to_speech(audio: UploadFile = File(...)):
+async def speech_to_speech(
+    audio: UploadFile = File(...),
+    history: str = Form("[]") # JSON string of history
+):
     try:
         # Read uploaded audio
         audio_bytes = await audio.read()
@@ -225,20 +231,54 @@ async def speech_to_speech(audio: UploadFile = File(...)):
 - 性格・口調の設定: フレンドリーで親しみやすい口調を心がけてください
 - 会話の相手として自然に振る舞ってください"""
 
+        # Parse history
+        history_list = []
+        try:
+            raw_history = json.loads(history)
+            for m in raw_history:
+                # Assuming history format matches ChatMessage or similar: {role: "user"|"assistant"|"model", text: "..."}
+                # Map "assistant" to "model" for Gemini
+                role = "user" if m.get("role") == "user" else "model"
+                text = m.get("text", "")
+                if text:
+                     history_list.append(
+                         types.Content(role=role, parts=[types.Part.from_text(text=text)])
+                     )
+        except Exception as e:
+            logger.warning(f"Failed to parse history: {e}")
+
         prompt_parts = [
             types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
             types.Part.from_text(text="ユーザーの音声を聴いて、返答してください。")
         ]
+        
+        # Combine history + new input
+        # Note: generate_content handles list of contents.
+        # But for 'chat' style context, we should pass history.
+        # generate_content doesn't technically take 'history' param like chats.create.
+        # We append previous turns to 'contents' list.
+        
+        all_contents = history_list + [types.Content(role="user", parts=prompt_parts)]
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=[types.Content(parts=prompt_parts)],
+            contents=all_contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction
             )
         )
         response_text = response.text
-        logger.info(f"Generated text: {response_text}")
+        logger.info(f"Generated text: '{response_text}'")
+
+        if not response_text:
+            logger.warning("Empty text generated from Gemini. Skipping TTS.")
+            # Return empty response or error?
+            # Let's return a JSON with no audio but transcript (empty)
+            return JSONResponse({
+                "audio": "",
+                "transcript": "(No response generated)",
+                "mime_type": "audio/mp3"
+            })
 
         # 2. Synthesize Audio
         # synthesize_speech returns base64 str (MP3 default)
