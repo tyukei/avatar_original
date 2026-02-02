@@ -113,6 +113,7 @@ function App() {
     const [error, setError] = useState(null)
     const [mouthOpen, setMouthOpen] = useState(false)
     const [user, setUser] = useState(null)
+    const [tosAccepted, setTosAccepted] = useState(() => localStorage.getItem('tos_accepted') === 'true')
 
     // 思考中アニメーション用
     const [thinkingFrame, setThinkingFrame] = useState(0)
@@ -998,6 +999,11 @@ function App() {
         setError(null)
     }
 
+    const handleAcceptToS = () => {
+        localStorage.setItem('tos_accepted', 'true')
+        setTosAccepted(true)
+    }
+
     const handleAvatarUpload = (type, event) => {
         const file = event.target.files[0]
         if (file) {
@@ -1049,6 +1055,41 @@ function App() {
             }
             return next
         })
+    }
+
+    // ToS Overlay
+    if (!tosAccepted) {
+        return (
+            <div className="tos-overlay">
+                <div className="tos-container">
+                    <h2 className="tos-title">利用規約</h2>
+                    <div className="tos-content">
+                        <h3>はじめに</h3>
+                        <p>本サービスをご利用いただく前に、以下の利用規約をお読みいただき、同意いただく必要があります。</p>
+
+                        <h3>データの取り扱いについて</h3>
+                        <p>本サービスでは、以下の情報を収集し、研究・調査目的で利用する可能性があります：</p>
+                        <ul>
+                            <li>ユーザーの基本情報（名前、メールアドレスなど）</li>
+                            <li>会話内容および音声データ</li>
+                            <li>サービスの利用状況</li>
+                        </ul>
+
+                        <h3>研究・調査目的での利用</h3>
+                        <p>収集したデータは、音声認識技術の改善、AI応答品質の向上、ユーザー体験の最適化などの研究・調査目的で活用される場合があります。個人を特定できる情報は適切に匿名化され、学術研究やサービス改善のために使用されます。</p>
+
+                        <h3>データの保護</h3>
+                        <p>お預かりしたデータは、適切なセキュリティ対策のもと安全に管理されます。第三者への無断提供は行いません。</p>
+
+                        <h3>同意について</h3>
+                        <p>「同意する」ボタンをクリックすることで、上記の利用規約に同意したものとみなされます。</p>
+                    </div>
+                    <button className="accept-button" onClick={handleAcceptToS}>
+                        同意する
+                    </button>
+                </div>
+            </div>
+        )
     }
 
     return (

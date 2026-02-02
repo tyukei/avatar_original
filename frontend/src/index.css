@@ -552,3 +552,82 @@ body {
   background-size: 0.65em auto;
   padding-right: 2.5rem;
 }
+
+/* Terms of Service Overlay */
+.tos-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-color);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.tos-container {
+  width: 100%;
+  max-width: 600px;
+  background: var(--card-bg);
+  border-radius: 1.5rem;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+.tos-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.tos-content {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.75rem;
+  margin-bottom: 1.5rem;
+  line-height: 1.8;
+  color: var(--text-secondary);
+}
+
+.tos-content h3 {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.tos-content p {
+  margin-bottom: 0.75rem;
+}
+
+.tos-content ul {
+  margin-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.accept-button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, var(--accent-color), #8b5cf6);
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+
+.accept-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px var(--accent-glow);
+}
