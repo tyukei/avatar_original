@@ -230,14 +230,88 @@ function App() {
         conversationHistoryRef.current = conversationHistory
     }, [conversationHistory])
 
-    // LFM Mode Logic: MediaRecorder
+    // LFM Mode Logic: MediaRecorder & VAD
     const mediaRecorderRef = useRef(null)
     const audioChunksRef = useRef([])
+    const vadFrameRef = useRef(null)
+    const silenceStartRef = useRef(null)
+    const isSpeakingRef = useRef(false)
+    const speechStartRef = useRef(null)
 
     const startLFMListening = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
             streamRef.current = stream
+
+            // --- VAD Setup ---
+            const audioContext = new AudioContext()
+            // audioContextRef.current = audioContext // Don't overwrite main output context? Or separate? 
+            // Better separate for input analysis to avoid conflict with output playback context state?
+            // Actually, usually we reuse or use separate. Let's use a local one for VAD to be safe/simple, 
+            // or reuse if we want to visualize mic input?
+            // Existing `updateVolume` uses `analyserRef` for visualization. 
+            // Let's REUSE `analyserRef` so standard visualization works too!
+
+            // Note: `startAudioCapture` (Live) sets up analyserRef.
+            // We should do similar here.
+
+            const analyser = audioContext.createAnalyser()
+            analyser.fftSize = 512
+            analyserRef.current = analyser // For visualization loop
+
+            const source = audioContext.createMediaStreamSource(stream)
+            source.connect(analyser)
+            // Do NOT connect to destination, to avoid feedback loop!
+
+            // Reset VAD state
+            silenceStartRef.current = null
+            isSpeakingRef.current = false
+            speechStartRef.current = null
+
+            // Start VAD Loop
+            const checkAudioLevel = () => {
+                if (!analyserRef.current) return
+
+                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+                analyserRef.current.getByteFrequencyData(dataArray)
+
+                // Calculate average volume
+                const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length
+
+                // Thresholds
+                const SPEAKING_THRESHOLD = 50 // Tuning needed? 10-20 might be noise. 50 is safe?
+                // `updateVolume` uses average/40 for visualization.
+                // Let's say if average > 15 (approx 5% volume) it's noise/speech on Mac mic? 
+                // Let's try 30.
+                const THRESHOLD = 20
+
+                if (average > THRESHOLD) {
+                    if (!isSpeakingRef.current) {
+                        console.log("VAD: Speech detected")
+                        isSpeakingRef.current = true
+                        speechStartRef.current = Date.now()
+                    }
+                    silenceStartRef.current = null // User is speaking
+                } else {
+                    if (isSpeakingRef.current) {
+                        // User WAS speaking, now silent
+                        if (!silenceStartRef.current) {
+                            silenceStartRef.current = Date.now()
+                        } else {
+                            // Check duration
+                            const diff = Date.now() - silenceStartRef.current
+                            if (diff > 1200) { // 1.2 seconds silence
+                                console.log("VAD: Silence detected, stopping recording...")
+                                stopLFMListening()
+                                return // End loop
+                            }
+                        }
+                    }
+                }
+                vadFrameRef.current = requestAnimationFrame(checkAudioLevel)
+            }
+            vadFrameRef.current = requestAnimationFrame(checkAudioLevel)
+
 
             const recorder = new MediaRecorder(stream)
             mediaRecorderRef.current = recorder
@@ -251,6 +325,11 @@ function App() {
 
             recorder.onstop = async () => {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' })
+                // Only submit if we actually detected speech?
+                // Or just always submit if recorded? 
+                // If VAD triggered stop, it means valuable audio exists.
+                // If manual stop, same.
+                // Note: user might click stop immediately without speaking?
                 await handleLFMSubmit(audioBlob)
             }
 
@@ -269,6 +348,14 @@ function App() {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop()
         }
+        if (vadFrameRef.current) {
+            cancelAnimationFrame(vadFrameRef.current)
+            vadFrameRef.current = null
+        }
+        // Also stop stream/analyser to release mic?
+        // Actually handleStop does that.
+        // But here we might want to keep stream open for faster restart?
+        // For simplicity, we stick to stop everything and restart.
     }
 
     const handleLFMSubmit = async (audioBlob) => {
@@ -706,6 +793,11 @@ function App() {
                         // already started or other error
                     }
                 }
+            } else if (mode === MODE.LFM && appState !== STATE.ERROR) {
+                // Restart LFM Listening Loop
+                console.log("Restarting LFM Listener...")
+                setAppState(STATE.READY) // Transitional
+                startLFMListening()
             } else {
                 setAppState(STATE.READY)
             }
@@ -762,7 +854,7 @@ function App() {
             // `getAvatarImage` checks `mouthOpen` state.
             // We need to update `mouthOpen` based on output volume.
 
-            if (!analyserRef.current) {
+            if (!analyserRef.current || analyserRef.current.context !== audioContext) {
                 const analyser = audioContext.createAnalyser()
                 analyser.fftSize = 256
                 analyserRef.current = analyser
@@ -873,6 +965,10 @@ function App() {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop()
             mediaRecorderRef.current = null
+        }
+        if (vadFrameRef.current) {
+            cancelAnimationFrame(vadFrameRef.current)
+            vadFrameRef.current = null
         }
 
         // 再生キュークリア
