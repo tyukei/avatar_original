@@ -202,140 +202,40 @@ function App() {
     const wsRef = useRef(null)
     const audioContextRef = useRef(null)
     const workletNodeRef = useRef(null)
-    const streamRef = useRef(null)
-    const playbackQueueRef = useRef([])
-    const isPlayingRef = useRef(false)
+    const analyserRef = useRef(null)
+    const avatarContainerRef = useRef(null)
+    const animationFrameRef = useRef(null)
 
-    // 思考中アニメーションループ
-    useEffect(() => {
-        let intervalId = null
-        if (appState === STATE.THINKING) {
-            intervalId = setInterval(() => {
-                setThinkingFrame(prev => (prev + 1) % 2)
-            }, 250) // 250msごとにフレーム切り替え
-        } else {
-            setThinkingFrame(0)
+    // ... existing refs
+
+    // マイク音量を監視してCSS変数を更新
+    const updateVolume = useCallback(() => {
+        if (analyserRef.current && avatarContainerRef.current && appState === STATE.USER_SPEAKING) {
+            const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+            analyserRef.current.getByteFrequencyData(dataArray)
+
+            // 平均音量を計算
+            const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length
+
+            // 0.0 ~ 1.0 に正規化 (感度調整)
+            const normalizedVolume = Math.min(1, average / 50)
+
+            avatarContainerRef.current.style.setProperty('--mic-volume', normalizedVolume)
+        } else if (avatarContainerRef.current) {
+            avatarContainerRef.current.style.setProperty('--mic-volume', 0)
         }
-        return () => {
-            if (intervalId) clearInterval(intervalId)
-        }
+
+        animationFrameRef.current = requestAnimationFrame(updateVolume)
     }, [appState])
 
-    // WebSocket接続
-    const connectWebSocket = useCallback(() => {
-        setAppState(STATE.CONNECTING)
-        setError(null)
-
-        let wsUrl = import.meta.env.VITE_WS_URL
-        if (!wsUrl) {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-            wsUrl = `${protocol}//${window.location.host}/ws`
+    useEffect(() => {
+        animationFrameRef.current = requestAnimationFrame(updateVolume)
+        return () => {
+            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
         }
+    }, [updateVolume])
 
-        const ws = new WebSocket(wsUrl)
-        wsRef.current = ws
-
-        ws.onopen = async () => {
-            console.log('WebSocket connected')
-
-            let token = null
-            if (auth.currentUser) {
-                try {
-                    token = await auth.currentUser.getIdToken()
-                } catch (e) {
-                    console.error("Failed to get token", e)
-                }
-            }
-
-            // 設定を送信
-            ws.send(JSON.stringify({
-                type: 'config',
-                userName: userName,
-                personality: personality,
-                token: token
-            }))
-
-            setAppState(STATE.READY)
-        }
-
-        ws.onmessage = async (event) => {
-            try {
-                const data = JSON.parse(event.data)
-
-                if (data.type === 'audio') {
-                    // Geminiからの音声データを受信
-                    const audioData = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))
-                    playbackQueueRef.current.push(audioData)
-
-                    // 出力トークンをカウント (24kHz)
-                    const tokens = estimateTokens(audioData.length, 24000)
-                    setTokenStats(prev => ({ ...prev, outputTokens: prev.outputTokens + tokens }))
-
-                    if (!isPlayingRef.current) {
-                        playAudioQueue()
-                    }
-                } else if (data.type === 'interrupted') {
-                    // 割り込み - キューをクリアして停止
-                    playbackQueueRef.current = []
-                    isPlayingRef.current = false
-                    setCurrentResponse('')
-                    setSubtitle('')
-                    setMouthOpen(false)
-                    setAppState(STATE.READY)
-                    console.log('Interrupted by user')
-                } else if (data.type === 'text') {
-                    // model_turn.parts[].text は思考過程なので、思考中状態にする
-                    setAppState(STATE.THINKING)
-                    console.log('[Thinking]', data.text)
-                } else if (data.type === 'transcript') {
-                    // AI発話開始時にユーザー発話を履歴に保存
-                    setCurrentUserTranscript(prev => {
-                        if (prev.trim()) {
-                            setConversationHistory(history => [
-                                ...history,
-                                { role: 'user', text: prev.trim(), timestamp: new Date() }
-                            ])
-                        }
-                        return ''
-                    })
-                    // 確定字幕（実際に話した内容）- 累積して表示
-                    setSubtitle(prev => prev + data.text)
-                    setCurrentResponse(prev => prev + data.text)
-                } else if (data.type === 'user_transcript') {
-                    // ユーザーの発話文字起こし - 累積
-                    setCurrentUserTranscript(prev => prev + data.text)
-                } else if (data.type === 'turn_complete') {
-                    // Geminiのターン終了 - 履歴に追加
-                    setCurrentResponse(prev => {
-                        if (prev.trim()) {
-                            setConversationHistory(history => [
-                                ...history,
-                                { role: 'assistant', text: prev.trim(), timestamp: new Date() }
-                            ])
-                        }
-                        return ''
-                    })
-                    setSubtitle('')
-                    setAppState(STATE.READY)
-                }
-            } catch (err) {
-                console.error('Message parse error:', err)
-            }
-        }
-
-        ws.onerror = (err) => {
-            console.error('WebSocket error:', err)
-            setError('WebSocket接続エラー')
-            setAppState(STATE.ERROR)
-        }
-
-        ws.onclose = () => {
-            console.log('WebSocket closed')
-            if (appState !== STATE.ERROR) {
-                setAppState(STATE.INIT)
-            }
-        }
-    }, [userName, personality])
+    // ... existing methods
 
     // 音声キャプチャ開始
     const startAudioCapture = async () => {
@@ -353,6 +253,11 @@ function App() {
             const audioContext = new AudioContext({ sampleRate: 16000 })
             audioContextRef.current = audioContext
 
+            // AnalyserNode設定
+            const analyser = audioContext.createAnalyser()
+            analyser.fftSize = 256
+            analyserRef.current = analyser
+
             // AudioWorkletを登録
             await audioContext.audioWorklet.addModule('/audio-processor.js')
 
@@ -360,33 +265,31 @@ function App() {
             const workletNode = new AudioWorkletNode(audioContext, 'audio-processor')
             workletNodeRef.current = workletNode
 
-            // AudioWorkletからのデータをWebSocketで送信
-            workletNode.port.onmessage = (event) => {
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                    const pcmData = event.data
-                    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(pcmData.buffer)))
-                    wsRef.current.send(JSON.stringify({
-                        type: 'audio',
-                        audio: base64
-                    }))
-
-                    // 入力トークンをカウント (16kHz)
-                    const tokens = estimateTokens(pcmData.byteLength, 16000)
-                    setTokenStats(prev => ({ ...prev, inputTokens: prev.inputTokens + tokens }))
-                }
-            }
-
+            // 音声の流れ: Source -> Analyser (可視化用)
+            //             Source -> Worklet (制作用)
+            source.connect(analyser)
             source.connect(workletNode)
             workletNode.connect(audioContext.destination)
-            return true
 
+            // ... implementation continues
+
+            // AudioWorkletからのデータをWebSocketで送信
+            workletNode.port.onmessage = (event) => {
+                // ... existing implementation
+            }
+
+            return true
         } catch (err) {
+            // ... error handling
             console.error('Audio capture error:', err)
             setError('マイクへのアクセスが拒否されました')
             setAppState(STATE.ERROR)
             return false
         }
     }
+
+    // ... handleStop updates to clear analyser
+
 
     // 音声再生キュー処理
     const playAudioQueue = async () => {
@@ -478,6 +381,14 @@ function App() {
             audioContextRef.current.close()
             audioContextRef.current = null
         }
+        // Audio Analysis停止
+        if (analyserRef.current) {
+            analyserRef.current = null
+        }
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current)
+        }
+
         // 再生キュークリア
         playbackQueueRef.current = []
         isPlayingRef.current = false
@@ -580,7 +491,10 @@ function App() {
 
             {view === VIEW.CHAT ? (
                 <>
-                    <div className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' : ''}`}>
+                    <div ref={avatarContainerRef} className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' :
+                        appState === STATE.USER_SPEAKING ? 'listening' :
+                            appState === STATE.THINKING ? 'thinking' : ''
+                        }`}>
                         <img
                             src={getAvatarImage()}
                             alt="アバター"

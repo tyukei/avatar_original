@@ -68,6 +68,27 @@ body {
   }
 }
 
+/* User Listening (Green) */
+.avatar-container.listening {
+  /* Dynamic shadow based on --mic-volume (0.0 to 1.0) */
+  /* We use a fallback of 0 if variable is not set */
+  --mic-volume: 0;
+  box-shadow:
+    0 0 calc(60px + (var(--mic-volume) * 100px)) rgba(74, 222, 128, 0.6),
+    0 0 calc(100px + (var(--mic-volume) * 150px)) rgba(74, 222, 128, 0.4);
+  border: 2px solid rgba(74, 222, 128, 0.4);
+  transition: box-shadow 0.1s ease-out;
+  /* Smooth transition for frame-by-frame updates */
+  transform: scale(calc(1 + (var(--mic-volume) * 0.05)));
+}
+
+/* Thinking (Purple) */
+.avatar-container.thinking {
+  box-shadow: 0 0 60px rgba(192, 132, 252, 0.5), 0 0 100px rgba(192, 132, 252, 0.3);
+  animation: pulse 1.5s ease-in-out infinite;
+  border: 2px solid rgba(192, 132, 252, 0.3);
+}
+
 .avatar-image {
   width: 360px;
   height: 360px;
