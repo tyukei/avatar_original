@@ -15,7 +15,8 @@ const STATE = {
 
 const MODE = {
     LIVE: 'live',
-    STANDARD: 'standard'
+    STANDARD: 'standard', // Gemini TTS
+    LFM: 'lfm' // LFM2.5Audio
 }
 
 const STATUS_LABELS = {
@@ -225,10 +226,103 @@ function App() {
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
 
-    // Sync conversationHistory to Ref
     useEffect(() => {
         conversationHistoryRef.current = conversationHistory
     }, [conversationHistory])
+
+    // LFM Mode Logic: MediaRecorder
+    const mediaRecorderRef = useRef(null)
+    const audioChunksRef = useRef([])
+
+    const startLFMListening = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            streamRef.current = stream
+
+            const recorder = new MediaRecorder(stream)
+            mediaRecorderRef.current = recorder
+            audioChunksRef.current = []
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data)
+                }
+            }
+
+            recorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' })
+                await handleLFMSubmit(audioBlob)
+            }
+
+            recorder.start()
+            setAppState(STATE.USER_SPEAKING)
+            return true
+        } catch (err) {
+            console.error('LFM Recording Error:', err)
+            setError('マイクへのアクセスエラー')
+            setAppState(STATE.ERROR)
+            return false
+        }
+    }
+
+    const stopLFMListening = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop()
+        }
+    }
+
+    const handleLFMSubmit = async (audioBlob) => {
+        setAppState(STATE.THINKING)
+
+        try {
+            const formData = new FormData()
+            formData.append('audio', audioBlob)
+
+            // Add user settings if needed by backend (though current endpoint handles transcription itself)
+            // But main.py speech_to_speech doesn't take metadata yet, it infers context.
+            // For now just send audio.
+
+            const res = await fetch('/api/speech-to-speech', {
+                method: 'POST',
+                body: formData
+            })
+
+            if (!res.ok) throw new Error(await res.text())
+
+            // Response is MP3 blob
+            const responseBlob = await res.blob()
+            const arrayBuffer = await responseBlob.arrayBuffer()
+
+            // Play Audio
+            // We reuse playAudioQueue if we decode it, or just play directly.
+            // playAudioQueue expects Float32Array chunks.
+            // Let's decode entire buffer and push to queue for visualizer support.
+
+            const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
+            audioContextRef.current = audioContext
+
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+            // Convert AudioBuffer to Float32Array for our queue system
+            const float32Data = audioBuffer.getChannelData(0)
+
+            // Split into manageable chunks if needed, or push strictly one.
+            playbackQueueRef.current.push(float32Data)
+
+            // Also update history optimistically?
+            // Since we don't get transcript back in this simple proxy mode, we can't update text history easily
+            // UNLESS we update backend to return JSON with audio+transcript.
+            // Current backend returns binary.
+            // For now, we won't show transcript for LFM mode.
+
+            playAudioQueue()
+
+        } catch (e) {
+            console.error(e)
+            setError('LFM Error: ' + e.message)
+            setAppState(STATE.ERROR)
+        }
+    }
 
     // マイク音量を監視してCSS変数を更新
     const updateVolume = useCallback(() => {
@@ -740,6 +834,8 @@ function App() {
             if (success) {
                 connectWebSocket()
             }
+        } else if (mode === MODE.LFM) {
+            await startLFMListening()
         } else {
             await startStandardListening()
         }
@@ -771,6 +867,12 @@ function App() {
         }
         if (animationFrameRef.current) {
             cancelAnimationFrame(animationFrameRef.current)
+        }
+
+        // LFM Recorder停止
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop()
+            mediaRecorderRef.current = null
         }
 
         // 再生キュークリア
@@ -873,24 +975,26 @@ function App() {
                 </div>
 
                 {/* モード切替スイッチ (メニュー内に追加) */}
+                {/* モード選択 (ドロップダウン) */}
                 <div style={{ marginTop: '1rem', padding: '0 1rem', color: 'white' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                        <span style={{ fontSize: '0.8rem' }}>Live API</span>
-                        <div
-                            style={{
-                                width: '36px', height: '20px', background: mode === MODE.LIVE ? '#4285F4' : '#666',
-                                borderRadius: '10px', position: 'relative', transition: 'background 0.3s'
-                            }}
-                            onClick={() => setMode(m => m === MODE.LIVE ? MODE.STANDARD : MODE.LIVE)}
-                        >
-                            <div style={{
-                                width: '16px', height: '16px', background: 'white', borderRadius: '50%',
-                                position: 'absolute', top: '2px', left: mode === MODE.LIVE ? '2px' : '18px',
-                                transition: 'left 0.3s'
-                            }} />
-                        </div>
-                        <span style={{ fontSize: '0.8rem' }}>Standard</span>
-                    </label>
+                    <label style={{ fontSize: '0.8rem', color: '#aaa', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
+                    <select
+                        value={mode}
+                        onChange={(e) => setMode(e.target.value)}
+                        style={{
+                            width: '100%',
+                            background: '#333',
+                            color: 'white',
+                            border: '1px solid #555',
+                            borderRadius: '4px',
+                            padding: '0.5rem',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        <option value={MODE.LIVE}>Gemini Live (Fastest)</option>
+                        <option value={MODE.STANDARD}>Gemini TTS (Standard)</option>
+                        <option value={MODE.LFM}>LFM 2.5 (Speech-to-Speech)</option>
+                    </select>
                 </div>
             </div>
 
@@ -955,6 +1059,19 @@ function App() {
                             </div>
                         </div>
                     )}
+
+                    {/* ステータス表示 - LFM Mode Stop Button logic needed */}
+                    <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white/50 text-sm font-light tracking-wider z-20 flex flex-col items-center gap-2">
+                        <div>{STATUS_LABELS[appState]}</div>
+                        {mode === MODE.LFM && appState === STATE.USER_SPEAKING && (
+                            <button
+                                onClick={stopLFMListening}
+                                className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-1 rounded-full text-xs transition-colors"
+                            >
+                                録音終了
+                            </button>
+                        )}
+                    </div>
 
                     {appState === STATE.INIT && (
                         !user ? (
@@ -1086,7 +1203,18 @@ function App() {
                     </div>
 
                     <div className="settings-section">
-                        <label className="settings-label">アバターの性格・口調</label>
+                        <label className="text-sm text-gray-400 mb-1 block">会話モデル</label>
+                        <select
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value)}
+                            className="w-full bg-gray-800 text-white rounded p-2 mb-4 border border-gray-700"
+                        >
+                            <option value={MODE.LIVE}>Gemini Live (Fastest)</option>
+                            <option value={MODE.STANDARD}>Gemini TTS (Standard)</option>
+                            <option value={MODE.LFM}>LFM 2.5 Audio (Speech-to-Speech)</option>
+                        </select>
+
+                        <label className="text-sm text-gray-400 mb-1 block">アバター性格</label>
                         <select
                             className="settings-select"
                             value={personality}
