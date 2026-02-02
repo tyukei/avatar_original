@@ -10,6 +10,7 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
     "websockets>=16.0",
     "firebase-admin>=6.6.0",
+    "google-generativeai>=0.8.0",
 ]
 
 [dependency-groups]

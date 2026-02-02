@@ -13,6 +13,11 @@ const STATE = {
     ERROR: 'error'
 }
 
+const MODE = {
+    LIVE: 'live',
+    STANDARD: 'standard'
+}
+
 const STATUS_LABELS = {
     [STATE.INIT]: 'マイクを有効化してください',
     [STATE.CONNECTING]: '接続中...',
@@ -97,6 +102,7 @@ const PERSONALITIES = [
 
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
+    const [mode, setMode] = useState(MODE.LIVE)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [appState, setAppState] = useState(STATE.INIT)
     const [subtitle, setSubtitle] = useState('')
@@ -182,13 +188,19 @@ function App() {
     }
 
     // APIコストトラッキング
-    const [tokenStats, setTokenStats] = useState({ inputTokens: 0, outputTokens: 0 })
+    const [tokenStats, setTokenStats] = useState({
+        liveInput: 0, liveOutput: 0,
+        stdInput: 0, stdOutput: 0
+    })
 
     // コスト計算 ($3/1M input, $12/1M output)
-    const calculateCost = (input, output) => {
-        const inputCost = (input / 1000000) * 3
-        const outputCost = (output / 1000000) * 12
-        return inputCost + outputCost
+    // コスト計算
+    const calculateCost = () => {
+        // Live: $3/1M (In), $12/1M (Out)
+        const liveCost = (tokenStats.liveInput / 1000000) * 3 + (tokenStats.liveOutput / 1000000) * 12
+        // Standard: $0.50/1M (In - Text), $10.00/1M (Out - Audio)
+        const stdCost = (tokenStats.stdInput / 1000000) * 0.50 + (tokenStats.stdOutput / 1000000) * 10.00
+        return liveCost + stdCost
     }
 
     // 音声データからトークン数を推定 (PCM 16kHz -> 約25トークン/秒)
@@ -205,6 +217,7 @@ function App() {
     const analyserRef = useRef(null)
     const avatarContainerRef = useRef(null)
     const animationFrameRef = useRef(null)
+    const recognitionRef = useRef(null) // For Web Speech API
 
     const streamRef = useRef(null)
     const playbackQueueRef = useRef([])
@@ -282,13 +295,21 @@ function App() {
                 const data = JSON.parse(event.data)
 
                 if (data.type === 'audio') {
-                    // Geminiからの音声データを受信
+                    // Geminiからの音声データを受信 (PCM 16kHz/24kHz depends on model, usually 24kHz for output in Live API?)
+                    // The Live API beta often returns 24kHz PCM.
                     const audioData = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))
-                    playbackQueueRef.current.push(audioData)
 
-                    // 出力トークンをカウント (24kHz)
+                    // Convert to Float32 immediately
+                    const int16Array = new Int16Array(audioData.buffer)
+                    const float32Array = new Float32Array(int16Array.length)
+                    for (let i = 0; i < int16Array.length; i++) {
+                        float32Array[i] = int16Array[i] / 32768.0
+                    }
+                    playbackQueueRef.current.push(float32Array)
+
+                    // 出力トークンをカウント (24kHz assumed for Live API)
                     const tokens = estimateTokens(audioData.length, 24000)
-                    setTokenStats(prev => ({ ...prev, outputTokens: prev.outputTokens + tokens }))
+                    setTokenStats(prev => ({ ...prev, liveOutput: prev.liveOutput + tokens }))
 
                     if (!isPlayingRef.current) {
                         playAudioQueue()
@@ -401,7 +422,7 @@ function App() {
 
                     // Int16Array -> Uint8Array -> Binary String -> Base64
                     // Note: String.fromCharCode.apply can exceed stack size for large buffers, 
-                    // so we use a loop or reduce chunk size if needed. 4096 samples (8kb) is border-line safe but loop is safer.
+                    // so we use a loop.
                     const uint8Array = new Uint8Array(audioData.buffer)
                     let binary = ''
                     const len = uint8Array.byteLength
@@ -419,7 +440,7 @@ function App() {
                     // audioData is Int16Array, so byteLength is length * 2
                     setTokenStats(prev => ({
                         ...prev,
-                        inputTokens: prev.inputTokens + estimateTokens(audioData.byteLength)
+                        liveInput: prev.liveInput + estimateTokens(audioData.byteLength)
                     }))
                 }
             }
@@ -434,45 +455,234 @@ function App() {
         }
     }
 
-    // ... handleStop updates to clear analyser
+    // --- Standard Mode Logic ---
+    const startStandardListening = async () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+        if (!SpeechRecognition) {
+            alert("このブラウザは音声認識をサポートしていません")
+            return false
+        }
+
+        const recognition = new SpeechRecognition()
+        recognition.lang = 'ja-JP'
+        recognition.interimResults = true
+        recognition.continuous = false
+
+        recognition.onresult = (event) => {
+            let interim = ''
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript
+                if (event.results[i].isFinal) {
+                    handleStandardSubmit(transcript)
+                } else {
+                    interim += transcript
+                }
+            }
+            if (interim) setCurrentUserTranscript(interim)
+        }
+
+        recognition.onerror = (event) => {
+            console.error("Speech Recognition Error", event.error)
+            if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                setError('音声認識エラー: ' + event.error)
+                setAppState(STATE.ERROR)
+            }
+        }
+
+        recognition.onend = () => {
+            // Auto-restart if we are still in READY state and not playing/thinking
+            // But for simple turn-based, we wait for AI response to finish before listening again.
+            // We will trigger listening again in playAudioQueue's onended or similar if we want full hands-free.
+            // For now, let's keep it simple: Stop listening when processing.
+        }
+
+        recognitionRef.current = recognition
+        recognition.start()
+        setAppState(STATE.READY)
+        return true
+    }
+
+    const handleStandardSubmit = async (text) => {
+        recognitionRef.current?.stop()
+        setAppState(STATE.THINKING)
+        setCurrentUserTranscript(text)
+
+        // Count Text Input Tokens (Approx 1 char = 1 token for safety/simplicity in Japanse context or just char count)
+        setTokenStats(prev => ({ ...prev, stdInput: prev.stdInput + text.length }))
+
+        // Optimistic History Update
+        const newHistory = [...conversationHistory, { role: 'user', text, timestamp: new Date() }]
+        setConversationHistory(newHistory)
+
+        try {
+            const res = await fetch('/chat/text_to_audio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: text,
+                    history: conversationHistory, // Send status BEFORE this new message (or handle in backend? backend expects history excluding current?)
+                    // Usually chat APIs expect history + new prompt.
+                    // My backend implementation:
+                    // chat.start_chat(history=...)
+                    // chat.send_message(text)
+                    // So history passed should NOT include the text we are sending now.
+                    // So passing `conversationHistory` (the state before update) is correct?
+                    // Wait, `newHistory` variable has the new one. `conversationHistory` state is not updated yet? 
+                    // React state updates are scheduled.
+                    // So `conversationHistory` here is likely the OLD one. Correct.
+                    user_name: userName,
+                    personality: personality
+                })
+            })
+
+            if (!res.ok) throw new Error(await res.text())
+
+            const data = await res.json()
+
+            if (data.audio) {
+                // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
+                const binaryString = atob(data.audio)
+                const len = binaryString.length
+                const bytes = new Uint8Array(len)
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i)
+                }
+
+                // Convert bytes to Float32 immediately (assuming Little Endian Int16)
+                const int16Array = new Int16Array(bytes.buffer)
+                const float32Array = new Float32Array(int16Array.length)
+                for (let i = 0; i < int16Array.length; i++) {
+                    float32Array[i] = int16Array[i] / 32768.0
+                }
+
+                playbackQueueRef.current.push(float32Array)
+
+                // Count Output Tokens (Audio)
+                // Approx estimate for now.
+                const durationSec = float32Array.length / 24000
+                setTokenStats(prev => ({ ...prev, stdOutput: prev.stdOutput + Math.ceil(durationSec * 30) }))
+
+                if (!isPlayingRef.current) {
+                    playAudioQueue()
+                }
+            }
+
+            // Update History with AI response
+            setConversationHistory([...newHistory, { role: 'assistant', text: data.transcript, timestamp: new Date() }])
+            setSubtitle(data.transcript)
+
+        } catch (e) {
+            console.error(e)
+            setError('送信エラー')
+            setAppState(STATE.ERROR)
+        }
+    }
 
 
-    // 音声再生キュー処理
+    // 音声再生キュー処理 (Float32Array base)
     const playAudioQueue = async () => {
         if (playbackQueueRef.current.length === 0) {
             isPlayingRef.current = false
             setMouthOpen(false)
+            // If Standard Mode, maybe restart listening here?
+            if (mode === MODE.STANDARD && appState !== STATE.ERROR) {
+                // Restart listening
+                // Need to delay slightly or just call startStandardListening
+                // Check if we are still "active" (not stopped by user)
+                if (streamRef.current === null && recognitionRef.current) {
+                    // Wait, in Standard Mode we don't have streamRef usually? 
+                    // Actually startStandardListening doesn't set streamRef.
+                    // But we should check if we should be running.
+                    // Simple check: Is appState back to READY? No, it's AVATAR_SPEAKING.
+                    // So we set it to READY and start listening.
+                    setAppState(STATE.READY)
+                    try {
+                        recognitionRef.current.start()
+                    } catch (e) {
+                        // already started or other error
+                    }
+                }
+            } else {
+                setAppState(STATE.READY)
+            }
             return
         }
 
         isPlayingRef.current = true
         setAppState(STATE.AVATAR_SPEAKING)
 
-        const audioData = playbackQueueRef.current.shift()
+        const float32Array = playbackQueueRef.current.shift()
 
-        // PCM to WAV変換して再生
         try {
             const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
-            const int16Array = new Int16Array(audioData.buffer)
-            const float32Array = new Float32Array(int16Array.length)
+            audioContextRef.current = audioContext
 
-            for (let i = 0; i < int16Array.length; i++) {
-                float32Array[i] = int16Array[i] / 32768.0
-                // 音量に基づいて口パク
-                if (Math.abs(float32Array[i]) > 0.1) {
-                    setMouthOpen(true)
-                }
-            }
+            // Loop for visualization
+            // Since we have the full buffer, we can just play it.
+            // But for lip sync, we need to analyze time domain or frequency.
+            // Or just simple amplitude check on pre-computed chunks?
+            // "Mouth Open" logic in original code was: check every sample? That's heavy for large buffer.
+            // It was chunked in original? 
+            // Original: "shift()" implies chunks.
+            // Live API sends chunks. Standard Mode sends ONE BIG CHUNK.
+            // If we play one big chunk, "Mouth Open" will be static or we need real-time analysis.
+            // AnalyzerNode can handle real-time analysis!
+            // Let's use AnalyzerNode for lip sync instead of manual loop!
+            // NOTE: Original code used manual loop on `float32Array` to set `MouthOpen`.
+            // "if (Math.abs(float32Array[i]) > 0.1) setMouthOpen(true)" -> This sets it for the whole chunk duration??
+            // React state update in loop is BAD.
+            // Actually original code did:
+            // "for (let i...) { ... setMouthOpen(true) }" -> This would re-render crazily or just batch.
+            // If the chunk is small (Live API), it works.
+            // IF THE CHUNK IS LARGE (Standard Mode), this is terrible. it will just set it to true/false instantly.
+
+            // Better Lip Sync approach:
+            // Connect source -> Analyser -> Destination.
+            // Use `requestAnimationFrame` to check Analyser volume and set Mouth.
+            // We already have `updateVolume` using `analyserRef`!
+            // `updateVolume` checks `analyserRef`.
+            // So we just need to route AudioSource -> Analyser.
 
             const audioBuffer = audioContext.createBuffer(1, float32Array.length, 24000)
             audioBuffer.copyToChannel(float32Array, 0)
 
             const source = audioContext.createBufferSource()
             source.buffer = audioBuffer
-            source.connect(audioContext.destination)
+
+            // Connect to existing analyser if present, or create one.
+            // In Live Mode, analyser is connected to Mic Input.
+            // We want it connected to Output for Avatar Speaking visualization?
+            // Or do we have separate visualizer?
+            // "updateVolume" uses `analyserRef` and sets `--mic-volume`.
+            // User probably wants mouth movement.
+            // `getAvatarImage` checks `mouthOpen` state.
+            // We need to update `mouthOpen` based on output volume.
+
+            if (!analyserRef.current) {
+                const analyser = audioContext.createAnalyser()
+                analyser.fftSize = 256
+                analyserRef.current = analyser
+            }
+
+            source.connect(analyserRef.current)
+            analyserRef.current.connect(audioContext.destination)
+
+            // Hook up mouth animation
+            // We can use a separate interval/animationFrame to update mouth from analyser
+            const checkMouth = () => {
+                if (!isPlayingRef.current) {
+                    setMouthOpen(false)
+                    return
+                }
+                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+                analyserRef.current.getByteFrequencyData(dataArray)
+                const vol = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
+                setMouthOpen(vol > 10) // Threshold
+                requestAnimationFrame(checkMouth)
+            }
+            requestAnimationFrame(checkMouth)
 
             source.onended = () => {
-                setMouthOpen(false)
                 playAudioQueue()
             }
 
@@ -504,10 +714,14 @@ function App() {
             alert("ログインが必要です")
             return
         }
-        // 先にマイク権限を要求
-        const success = await startAudioCapture()
-        if (success) {
-            connectWebSocket()
+        // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
+        if (mode === MODE.LIVE) {
+            const success = await startAudioCapture()
+            if (success) {
+                connectWebSocket()
+            }
+        } else {
+            await startStandardListening()
         }
     }
 
@@ -519,8 +733,12 @@ function App() {
         }
         // マイクストリーム停止
         if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop())
             streamRef.current = null
+        }
+        // Web Speech停止
+        if (recognitionRef.current) {
+            recognitionRef.current.stop()
+            recognitionRef.current = null
         }
         // AudioContext停止
         if (audioContextRef.current) {
@@ -633,6 +851,27 @@ function App() {
                         設定
                     </button>
                 </div>
+
+                {/* モード切替スイッチ (メニュー内に追加) */}
+                <div style={{ marginTop: '1rem', padding: '0 1rem', color: 'white' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <span style={{ fontSize: '0.8rem' }}>Live API</span>
+                        <div
+                            style={{
+                                width: '36px', height: '20px', background: mode === MODE.LIVE ? '#4285F4' : '#666',
+                                borderRadius: '10px', position: 'relative', transition: 'background 0.3s'
+                            }}
+                            onClick={() => setMode(m => m === MODE.LIVE ? MODE.STANDARD : MODE.LIVE)}
+                        >
+                            <div style={{
+                                width: '16px', height: '16px', background: 'white', borderRadius: '50%',
+                                position: 'absolute', top: '2px', left: mode === MODE.LIVE ? '2px' : '18px',
+                                transition: 'left 0.3s'
+                            }} />
+                        </div>
+                        <span style={{ fontSize: '0.8rem' }}>Standard</span>
+                    </label>
+                </div>
             </div>
 
             {view === VIEW.CHAT ? (
@@ -659,19 +898,19 @@ function App() {
                     </div>
 
                     {/* API コスト表示 */}
-                    {(tokenStats.inputTokens > 0 || tokenStats.outputTokens > 0) && (
+                    {(tokenStats.liveInput > 0 || tokenStats.liveOutput > 0 || tokenStats.stdInput > 0 || tokenStats.stdOutput > 0) && (
                         <div className="cost-container">
                             <div className="cost-row">
                                 <span className="cost-label">入力トークン:</span>
-                                <span className="cost-value">{tokenStats.inputTokens.toLocaleString()}</span>
+                                <span className="cost-value">{(tokenStats.liveInput + tokenStats.stdInput).toLocaleString()}</span>
                             </div>
                             <div className="cost-row">
                                 <span className="cost-label">出力トークン:</span>
-                                <span className="cost-value">{tokenStats.outputTokens.toLocaleString()}</span>
+                                <span className="cost-value">{(tokenStats.liveOutput + tokenStats.stdOutput).toLocaleString()}</span>
                             </div>
                             <div className="cost-row cost-total">
-                                <span className="cost-label">累積料金:</span>
-                                <span className="cost-value">${calculateCost(tokenStats.inputTokens, tokenStats.outputTokens).toFixed(6)}</span>
+                                <span className="cost-label">累積料金 ({mode === MODE.LIVE ? 'Live' : 'Std'}):</span>
+                                <span className="cost-value">${calculateCost().toFixed(6)}</span>
                             </div>
                         </div>
                     )}
@@ -908,7 +1147,8 @@ function App() {
                         <p>Version: {appVersion}</p>
                     </div>
                 </div>
-            )}
+            )
+            }
         </div>
     )
 }

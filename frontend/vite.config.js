@@ -18,6 +18,10 @@ export default defineConfig({
       '/version': {
         target: 'http://localhost:8080',
         changeOrigin: true
+      },
+      '/chat': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   }
