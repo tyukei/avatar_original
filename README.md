@@ -31,11 +31,26 @@ avatar_original/
 
 ### 1. 環境変数の設定
 
+詳細な設定項目については [docs/environment_variables.md](docs/environment_variables.md) を参照してください。
+
+#### バックエンド (`backend/`)
+
 ```bash
 cd backend
 cp .env.example .env
-# .env ファイルを編集して GEMINI_API_KEY を設定
 ```
+`.env` ファイルを編集して `GEMINI_API_KEY` と `FIREBASE_SERVICE_ACCOUNT` を設定してください。
+
+#### フロントエンド (`frontend/`)
+
+```bash
+cd frontend
+cp .env.example .env.local
+```
+`.env.local` ファイルを編集して Firebase の設定値 (`VITE_FIREBASE_*`) を入力してください。
+また、ローカル開発用に `VITE_WS_URL=ws://localhost:8080/ws` が設定されていることを確認してください。
+
+
 
 ### 2. バックエンドの起動
 
