@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
-from google.cloud import texttospeech
+# from google.cloud import texttospeech (Removed)
 import base64
 from dotenv import load_dotenv
 
@@ -22,10 +22,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize firebase app
+from firebase_admin import credentials
+
 try:
     firebase_admin.get_app()
 except ValueError:
-    firebase_admin.initialize_app()
+    service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+    if service_account_json:
+        try:
+            cred = credentials.Certificate(json.loads(service_account_json))
+            firebase_admin.initialize_app(cred)
+            logging.info("Initialized Firebase with service account from env")
+        except Exception as e:
+            logging.error(f"Failed to load FIREBASE_SERVICE_ACCOUNT: {e}")
+            firebase_admin.initialize_app()
+    else:
+        firebase_admin.initialize_app()
 
 # Logger setup
 logging.basicConfig(level=logging.INFO)
@@ -55,13 +67,8 @@ GEMINI_URL = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativela
 # Configure GenAI
 genai.configure(api_key=API_KEY)
 
-# Initialize TTS Client
-# Note: This requires Application Default Credentials (ADC) to be set up.
-try:
-    tts_client = texttospeech.TextToSpeechClient()
-except Exception as e:
-    logger.warning(f"Failed to initialize TextToSpeechClient: {e}")
-    tts_client = None
+# tts_client removal
+tts_client = None
 
 class ChatMessage(BaseModel):
     role: str

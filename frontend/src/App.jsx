@@ -221,7 +221,14 @@ function App() {
 
     const streamRef = useRef(null)
     const playbackQueueRef = useRef([])
+
     const isPlayingRef = useRef(false)
+    const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
+
+    // Sync conversationHistory to Ref
+    useEffect(() => {
+        conversationHistoryRef.current = conversationHistory
+    }, [conversationHistory])
 
     // マイク音量を監視してCSS変数を更新
     const updateVolume = useCallback(() => {
@@ -511,8 +518,12 @@ function App() {
         setTokenStats(prev => ({ ...prev, stdInput: prev.stdInput + text.length }))
 
         // Optimistic History Update
-        const newHistory = [...conversationHistory, { role: 'user', text, timestamp: new Date() }]
-        setConversationHistory(newHistory)
+        const userMsg = { role: 'user', text, timestamp: new Date() }
+        setConversationHistory(prev => [...prev, userMsg])
+
+        // Capture current history from Ref for API call (to avoid stale closure)
+        // We send the history *before* this user message, as the backend constructs context from it
+        const historyToSend = conversationHistoryRef.current
 
         try {
             const res = await fetch('/chat/text_to_audio', {
@@ -520,16 +531,7 @@ function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     text: text,
-                    history: conversationHistory, // Send status BEFORE this new message (or handle in backend? backend expects history excluding current?)
-                    // Usually chat APIs expect history + new prompt.
-                    // My backend implementation:
-                    // chat.start_chat(history=...)
-                    // chat.send_message(text)
-                    // So history passed should NOT include the text we are sending now.
-                    // So passing `conversationHistory` (the state before update) is correct?
-                    // Wait, `newHistory` variable has the new one. `conversationHistory` state is not updated yet? 
-                    // React state updates are scheduled.
-                    // So `conversationHistory` here is likely the OLD one. Correct.
+                    history: historyToSend,
                     user_name: userName,
                     personality: personality
                 })
@@ -575,7 +577,8 @@ function App() {
             }
 
             // Update History with AI response
-            setConversationHistory([...newHistory, { role: 'assistant', text: data.transcript, timestamp: new Date() }])
+            const aiMsg = { role: 'assistant', text: data.transcript, timestamp: new Date() }
+            setConversationHistory(prev => [...prev, aiMsg])
             setSubtitle(data.transcript)
 
         } catch (e) {
