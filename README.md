@@ -58,7 +58,7 @@ Python環境管理ツール `uv` を使用します。
 
 ```bash
 cd backend
-uv run uvicorn main:app --reload --port 8080
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 ※ 初回実行時に自動的に依存関係がインストールされます。
@@ -68,7 +68,7 @@ uv run uvicorn main:app --reload --port 8080
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host
 ```
 
 ### 4. アバター画像の配置
