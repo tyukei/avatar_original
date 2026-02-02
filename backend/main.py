@@ -1,6 +1,8 @@
 import os
 import json
 import tomllib
+import io
+import wave
 
 import asyncio
 import logging
@@ -83,6 +85,17 @@ class TextToAudioRequest(BaseModel):
     personality: Optional[str] = "フレンドリーで親しみやすい口調を心がけてください"
 
 
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
+    """Converts raw PCM data to WAV format."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    return buffer.getvalue()
+
 def synthesize_speech(text: str) -> str:
     """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
     try:
@@ -102,14 +115,30 @@ def synthesize_speech(text: str) -> str:
 
         # Extract audio data from the first part
         # In new SDK, response structure might differ slightly but usually compatible parts
-        # Extract audio data from the first part
-        # In new SDK, response structure might differ slightly but usually compatible parts
         if resp.candidates and resp.candidates[0].content:
             for part in resp.candidates[0].content.parts:
                 if part.inline_data:
+                     # Log the mime_type to verify format
+                     mime_type = part.inline_data.mime_type
+                     logger.info(f"TTS MimeType received: {mime_type}")
+                     
+                     audio_data = part.inline_data.data
+                     
+                     if "audio/L16" in mime_type:
+                         # Extract sample rate if possible, default to 24000
+                         sample_rate = 24000
+                         if "rate=" in mime_type:
+                             try:
+                                 rate_str = mime_type.split("rate=")[1].split(";")[0]
+                                 sample_rate = int(rate_str)
+                             except:
+                                 pass
+                         logger.info(f"Converting PCM to WAV (rate={sample_rate})")
+                         audio_data = pcm_to_wav(audio_data, sample_rate)
+                     
                      # Return base64 encoded string directly from the blob
                      # inline_data.data is bytes
-                     return base64.b64encode(part.inline_data.data).decode("utf-8")
+                     return base64.b64encode(audio_data).decode("utf-8")
         else:
              logger.error(f"TTS Generation failed or blocked. Response: {resp}")
 
@@ -177,7 +206,15 @@ async def speech_to_speech(audio: UploadFile = File(...)):
     try:
         # Read uploaded audio
         audio_bytes = await audio.read()
-        mime_type = audio.content_type or "audio/wav"
+        mime_type = audio.content_type
+        
+        if not mime_type or mime_type == "application/octet-stream":
+             if audio.filename.endswith(".wav"):
+                 mime_type = "audio/wav"
+             elif audio.filename.endswith(".mp3"):
+                 mime_type = "audio/mp3"
+             else:
+                 mime_type = "audio/wav"  # Default fallback
 
         # 1. Generate text with Gemini
         system_instruction = """あなたは音声アバターです。以下のルールに従ってください：
