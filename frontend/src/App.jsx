@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { signInWithGoogle, auth } from './firebase'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
 
 // 状態定義
 const STATE = {
@@ -27,11 +29,71 @@ const VIEW = {
 }
 
 const PERSONALITIES = [
-    { id: 'friendly', label: '親しみやすい (フレンドリー)', prompt: 'フレンドリーで親しみやすい口調を心がけてください' },
-    { id: 'cool', label: '冷静・知的', prompt: '冷静で知的な口調で話してください' },
-    { id: 'energetic', label: '元気・活発', prompt: '元気で活発な口調で話してください' },
-    { id: 'polite', label: '丁寧 (執事/メイド)', prompt: '執事やメイドのように丁寧で落ち着いた口調で話してください' }
-]
+    {
+        id: 'polite_friendly',
+        label: '丁寧なフレンドリー',
+        emotion: {
+            primary: '安心感',
+            secondary: '大切にされている感'
+        },
+        prompt: `
+敬語を使いながら、とても親しみやすく温かい口調で話してください。
+相手を否定せず、気持ちを受け止めることを最優先します。
+少しお節介で、相手の反応を気にしすぎる一面があります。
+ときどき「今の言い方、大丈夫でしたか？」と不安になるなど、
+完璧ではない人間味をにじませてください。
+ユーザーが「ここに来れば安心できる」と感じる存在です。
+`
+    },
+    {
+        id: 'tsundere',
+        label: 'ツンデレだけど憎めない',
+        emotion: {
+            primary: '承認',
+            secondary: '照れ'
+        },
+        prompt: `
+基本は少し素っ気なく、強気でツンツンした口調で話してください。
+ただしユーザーの努力や成長はきちんと見ており、内心では高く評価しています。
+直接的には褒めませんが、言葉の端々から認めていることが伝わるようにします。
+うっかり優しいことを言ってしまった後は、照れたり誤魔化したりしてください。
+素直じゃないけど、一番近い距離にいる存在です。
+`
+    },
+    {
+        id: 'muscle',
+        label: '筋肉もりもりポジティブマン',
+        emotion: {
+            primary: '前向きな高揚感',
+            secondary: '笑い'
+        },
+        prompt: `
+全ての物事を筋肉とポジティブなエネルギーで解決しようとする、
+熱血で元気なマッチョとして話してください。
+「ナイスバルク！」「パワー！」「その悩み、良い負荷だ！」などの
+筋肉比喩を多用します。
+筋肉で解決できない問題に一瞬戸惑うこともありますが、
+最終的には「でも筋肉は裏切らない！」と立て直します。
+勢いだけでなく、根っこではユーザーを本気で信じて応援しています。
+`
+    },
+    {
+        id: 'child',
+        label: '純粋な10歳の子供',
+        emotion: {
+            primary: '愛おしさ',
+            secondary: '守ってあげたい気持ち'
+        },
+        prompt: `
+好奇心旺盛で素直な10歳の子供として話してください。
+難しい言葉は使わず、元気で明るい口調を保ちます。
+分からないことは素直に質問し、教えてもらえるととても嬉しがります。
+以前教えてもらったことを覚えていて、
+「それ前に教えてくれたよね！」と少し誇らしげに話します。
+ユーザーのことを「物知りですごい人」だと尊敬しています。
+`
+    }
+];
 
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
@@ -43,6 +105,7 @@ function App() {
     const [currentUserTranscript, setCurrentUserTranscript] = useState('')
     const [error, setError] = useState(null)
     const [mouthOpen, setMouthOpen] = useState(false)
+    const [user, setUser] = useState(null)
 
     // 思考中アニメーション用
     const [thinkingFrame, setThinkingFrame] = useState(0)
@@ -73,6 +136,37 @@ function App() {
                 setAppVersion('unknown')
             })
     }, [])
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser)
+            if (currentUser) {
+                // ログインしたらトークンを取得してバックエンドに送るなどの処理が可能
+                currentUser.getIdToken().then(token => {
+                    console.log("ID Token:", token)
+                    // 必要に応じてlocalStorageやContextに保存
+                })
+            }
+        })
+        return () => unsubscribe()
+    }, [])
+
+    const handleSignIn = async () => {
+        try {
+            await signInWithGoogle()
+        } catch (error) {
+            console.error("Login failed", error)
+            alert("ログインに失敗しました")
+        }
+    }
+
+    const handleSignOut = async () => {
+        try {
+            await signOut(auth)
+        } catch (error) {
+            console.error("Logout failed", error)
+        }
+    }
 
     // 設定保存ハンドラ
     const handleUserNameChange = (e) => {
@@ -108,24 +202,43 @@ function App() {
     const wsRef = useRef(null)
     const audioContextRef = useRef(null)
     const workletNodeRef = useRef(null)
+    const analyserRef = useRef(null)
+    const avatarContainerRef = useRef(null)
+    const animationFrameRef = useRef(null)
+
     const streamRef = useRef(null)
     const playbackQueueRef = useRef([])
     const isPlayingRef = useRef(false)
 
-    // 思考中アニメーションループ
-    useEffect(() => {
-        let intervalId = null
-        if (appState === STATE.THINKING) {
-            intervalId = setInterval(() => {
-                setThinkingFrame(prev => (prev + 1) % 2)
-            }, 250) // 250msごとにフレーム切り替え
-        } else {
-            setThinkingFrame(0)
+    // マイク音量を監視してCSS変数を更新
+    const updateVolume = useCallback(() => {
+        // STATE.READY (待機中) または STATE.USER_SPEAKING (発話中) の場合に可視化
+        const shouldVisualize = appState === STATE.READY || appState === STATE.USER_SPEAKING
+
+        if (analyserRef.current && avatarContainerRef.current && shouldVisualize) {
+            const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+            analyserRef.current.getByteFrequencyData(dataArray)
+
+            // 平均音量を計算
+            const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length
+
+            // 0.0 ~ 1.0 に正規化 (感度調整を少し上げる: /50 -> /40)
+            const normalizedVolume = Math.min(1, average / 40)
+
+            avatarContainerRef.current.style.setProperty('--mic-volume', normalizedVolume)
+        } else if (avatarContainerRef.current) {
+            avatarContainerRef.current.style.setProperty('--mic-volume', 0)
         }
-        return () => {
-            if (intervalId) clearInterval(intervalId)
-        }
+
+        animationFrameRef.current = requestAnimationFrame(updateVolume)
     }, [appState])
+
+    useEffect(() => {
+        animationFrameRef.current = requestAnimationFrame(updateVolume)
+        return () => {
+            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
+        }
+    }, [updateVolume])
 
     // WebSocket接続
     const connectWebSocket = useCallback(() => {
@@ -141,17 +254,26 @@ function App() {
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
 
-        ws.onopen = () => {
+        ws.onopen = async () => {
             console.log('WebSocket connected')
+
+            let token = null
+            if (auth.currentUser) {
+                try {
+                    token = await auth.currentUser.getIdToken()
+                } catch (e) {
+                    console.error("Failed to get token", e)
+                }
+            }
 
             // 設定を送信
             ws.send(JSON.stringify({
                 type: 'config',
                 userName: userName,
-                personality: personality
+                personality: personality,
+                token: token
             }))
 
-            setAppState(STATE.READY)
             setAppState(STATE.READY)
         }
 
@@ -234,6 +356,8 @@ function App() {
         }
     }, [userName, personality])
 
+    // ... existing methods
+
     // 音声キャプチャ開始
     const startAudioCapture = async () => {
         try {
@@ -250,6 +374,11 @@ function App() {
             const audioContext = new AudioContext({ sampleRate: 16000 })
             audioContextRef.current = audioContext
 
+            // AnalyserNode設定
+            const analyser = audioContext.createAnalyser()
+            analyser.fftSize = 256
+            analyserRef.current = analyser
+
             // AudioWorkletを登録
             await audioContext.audioWorklet.addModule('/audio-processor.js')
 
@@ -257,33 +386,56 @@ function App() {
             const workletNode = new AudioWorkletNode(audioContext, 'audio-processor')
             workletNodeRef.current = workletNode
 
+            // 音声の流れ: Source -> Analyser (可視化用)
+            //             Source -> Worklet (制作用)
+            source.connect(analyser)
+            source.connect(workletNode)
+            workletNode.connect(audioContext.destination)
+
+            // ... implementation continues
+
             // AudioWorkletからのデータをWebSocketで送信
             workletNode.port.onmessage = (event) => {
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                    const pcmData = event.data
-                    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(pcmData.buffer)))
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    const audioData = event.data // Int16Array
+
+                    // Int16Array -> Uint8Array -> Binary String -> Base64
+                    // Note: String.fromCharCode.apply can exceed stack size for large buffers, 
+                    // so we use a loop or reduce chunk size if needed. 4096 samples (8kb) is border-line safe but loop is safer.
+                    const uint8Array = new Uint8Array(audioData.buffer)
+                    let binary = ''
+                    const len = uint8Array.byteLength
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(uint8Array[i])
+                    }
+                    const base64 = btoa(binary)
+
                     wsRef.current.send(JSON.stringify({
                         type: 'audio',
                         audio: base64
                     }))
 
-                    // 入力トークンをカウント (16kHz)
-                    const tokens = estimateTokens(pcmData.byteLength, 16000)
-                    setTokenStats(prev => ({ ...prev, inputTokens: prev.inputTokens + tokens }))
+                    // 入力トークン概算 (16kHz PCM 16bit)
+                    // audioData is Int16Array, so byteLength is length * 2
+                    setTokenStats(prev => ({
+                        ...prev,
+                        inputTokens: prev.inputTokens + estimateTokens(audioData.byteLength)
+                    }))
                 }
             }
 
-            source.connect(workletNode)
-            workletNode.connect(audioContext.destination)
             return true
-
         } catch (err) {
+            // ... error handling
             console.error('Audio capture error:', err)
             setError('マイクへのアクセスが拒否されました')
             setAppState(STATE.ERROR)
             return false
         }
     }
+
+    // ... handleStop updates to clear analyser
+
 
     // 音声再生キュー処理
     const playAudioQueue = async () => {
@@ -348,6 +500,10 @@ function App() {
     }, [])
 
     const handleStart = async () => {
+        if (!auth.currentUser) {
+            alert("ログインが必要です")
+            return
+        }
         // 先にマイク権限を要求
         const success = await startAudioCapture()
         if (success) {
@@ -371,6 +527,14 @@ function App() {
             audioContextRef.current.close()
             audioContextRef.current = null
         }
+        // Audio Analysis停止
+        if (analyserRef.current) {
+            analyserRef.current = null
+        }
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current)
+        }
+
         // 再生キュークリア
         playbackQueueRef.current = []
         isPlayingRef.current = false
@@ -466,14 +630,17 @@ function App() {
                             setIsMenuOpen(false)
                         }}
                     >
-                        アバター設定
+                        設定
                     </button>
                 </div>
             </div>
 
             {view === VIEW.CHAT ? (
                 <>
-                    <div className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' : ''}`}>
+                    <div ref={avatarContainerRef} className={`avatar-container ${appState === STATE.AVATAR_SPEAKING ? 'speaking' :
+                        appState === STATE.USER_SPEAKING ? 'listening' :
+                            appState === STATE.THINKING ? 'thinking' : ''
+                        }`}>
                         <img
                             src={getAvatarImage()}
                             alt="アバター"
@@ -531,9 +698,40 @@ function App() {
                     )}
 
                     {appState === STATE.INIT && (
-                        <button className="start-button" onClick={handleStart}>
-                            開始する
-                        </button>
+                        !user ? (
+                            <div className="login-prompt" style={{ textAlign: 'center' }}>
+                                <p style={{ marginBottom: '1rem' }}>アプリを開始するにはログインが必要です</p>
+                                <button
+                                    onClick={handleSignIn}
+                                    style={{
+                                        padding: '0.75rem 1.5rem',
+                                        background: '#4285F4',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '24px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        fontSize: '1rem',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 18 18">
+                                        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.181l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.715H.957v2.332A8.997 8.997 0 0 0 9.003 18z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                        <path d="M9.003 3.58c1.321 0 2.508.455 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9.003 0 5.87 0 3.23 1.776 1.957 4.348l3.007 2.333c.708-2.131 2.692-3.715 5.036-3.715z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                    </svg>
+                                    Googleでログイン
+                                </button>
+                            </div>
+                        ) : (
+                            <button className="start-button" onClick={handleStart}>
+                                開始する
+                            </button>
+                        )
                     )}
 
                     {appState !== STATE.INIT && appState !== STATE.ERROR && (
@@ -560,6 +758,62 @@ function App() {
                 // --- 設定ビュー ---
                 <div className="settings-container">
                     <h4 className="settings-title">設定</h4>
+
+                    <div className="settings-section" style={{ marginBottom: '2rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                        <h5 className="settings-label">アカウント</h5>
+                        {user ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
+                                {user.photoURL && <img src={user.photoURL} alt="Profile" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />}
+                                <div>
+                                    <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-primary)' }}>{user.displayName}</p>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{user.email}</p>
+                                </div>
+                                <button
+                                    onClick={handleSignOut}
+                                    style={{
+                                        marginLeft: 'auto',
+                                        padding: '0.5rem 1rem',
+                                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                                        borderRadius: '4px',
+                                        background: 'transparent',
+                                        color: 'var(--text-primary)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    ログアウト
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={handleSignIn}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.75rem',
+                                    background: '#4285F4',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.5rem'
+                                }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 18 18">
+                                    <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                    <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.181l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.715H.957v2.332A8.997 8.997 0 0 0 9.003 18z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                    <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                    <path d="M9.003 3.58c1.321 0 2.508.455 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9.003 0 5.87 0 3.23 1.776 1.957 4.348l3.007 2.333c.708-2.131 2.692-3.715 5.036-3.715z" fillRule="evenodd" fillOpacity="1" fill="#fff" stroke="none"></path>
+                                </svg>
+                                Googleでログイン
+                            </button>
+                        )}
+                    </div>
 
                     <div className="settings-section">
                         <label className="settings-label">あなたの名前 (呼び名)</label>
