@@ -513,7 +513,7 @@ function App() {
                             setIsMenuOpen(false)
                         }}
                     >
-                        アバター設定
+                        設定
                     </button>
                 </div>
             </div>
@@ -639,25 +639,29 @@ function App() {
                 <div className="settings-container">
                     <h4 className="settings-title">設定</h4>
 
-                    <div className="settings-section" style={{ marginBottom: '2rem', padding: '1rem', background: '#f5f5f5', borderRadius: '8px' }}>
+                    <div className="settings-section" style={{ marginBottom: '2rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
                         <h5 className="settings-label">アカウント</h5>
                         {user ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
                                 {user.photoURL && <img src={user.photoURL} alt="Profile" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />}
                                 <div>
-                                    <p style={{ margin: 0, fontWeight: 'bold' }}>{user.displayName}</p>
-                                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#666' }}>{user.email}</p>
+                                    <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-primary)' }}>{user.displayName}</p>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{user.email}</p>
                                 </div>
                                 <button
                                     onClick={handleSignOut}
                                     style={{
                                         marginLeft: 'auto',
                                         padding: '0.5rem 1rem',
-                                        border: '1px solid #ccc',
+                                        border: '1px solid rgba(255, 255, 255, 0.2)',
                                         borderRadius: '4px',
-                                        background: 'white',
-                                        cursor: 'pointer'
+                                        background: 'transparent',
+                                        color: 'var(--text-primary)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
                                     }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
                                     ログアウト
                                 </button>
