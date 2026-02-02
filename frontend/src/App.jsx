@@ -1296,17 +1296,6 @@ function App() {
                     </div>
 
                     <div className="settings-section">
-                        <label className="text-sm text-gray-400 mb-1 block">会話モデル</label>
-                        <select
-                            value={mode}
-                            onChange={(e) => setMode(e.target.value)}
-                            className="w-full bg-gray-800 text-white rounded p-2 mb-4 border border-gray-700"
-                        >
-                            <option value={MODE.LIVE}>Gemini Live (Fastest)</option>
-                            <option value={MODE.STANDARD}>Gemini TTS (Standard)</option>
-                            <option value={MODE.LFM}>LFM 2.5 Audio (Speech-to-Speech)</option>
-                        </select>
-
                         <label className="text-sm text-gray-400 mb-1 block">アバター性格</label>
                         <select
                             className="settings-select"
