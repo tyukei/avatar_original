@@ -207,7 +207,6 @@ from fastapi import Form
 @app.post("/api/speech-to-speech")
 async def speech_to_speech(
     audio: UploadFile = File(...),
-    history: str = Form("[]") # JSON string of history
 ):
     try:
         # Read uploaded audio
@@ -231,38 +230,14 @@ async def speech_to_speech(
 - 性格・口調の設定: フレンドリーで親しみやすい口調を心がけてください
 - 会話の相手として自然に振る舞ってください"""
 
-        # Parse history
-        history_list = []
-        try:
-            raw_history = json.loads(history)
-            for m in raw_history:
-                # Assuming history format matches ChatMessage or similar: {role: "user"|"assistant"|"model", text: "..."}
-                # Map "assistant" to "model" for Gemini
-                role = "user" if m.get("role") == "user" else "model"
-                text = m.get("text", "")
-                if text:
-                     history_list.append(
-                         types.Content(role=role, parts=[types.Part.from_text(text=text)])
-                     )
-        except Exception as e:
-            logger.warning(f"Failed to parse history: {e}")
-
         prompt_parts = [
             types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
             types.Part.from_text(text="ユーザーの音声を聴いて、返答してください。")
         ]
         
-        # Combine history + new input
-        # Note: generate_content handles list of contents.
-        # But for 'chat' style context, we should pass history.
-        # generate_content doesn't technically take 'history' param like chats.create.
-        # We append previous turns to 'contents' list.
-        
-        all_contents = history_list + [types.Content(role="user", parts=prompt_parts)]
-
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=all_contents,
+            contents=[types.Content(role="user", parts=prompt_parts)],
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction
             )
