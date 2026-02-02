@@ -1296,7 +1296,7 @@ function App() {
                     </div>
 
                     <div className="settings-section">
-                        <label className="text-sm text-gray-400 mb-1 block">アバター性格</label>
+                        <label className="settings-label">アバター性格</label>
                         <select
                             className="settings-select"
                             value={personality}
