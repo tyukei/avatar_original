@@ -206,19 +206,24 @@ function App() {
     const avatarContainerRef = useRef(null)
     const animationFrameRef = useRef(null)
 
-    // ... existing refs
+    const streamRef = useRef(null)
+    const playbackQueueRef = useRef([])
+    const isPlayingRef = useRef(false)
 
     // マイク音量を監視してCSS変数を更新
     const updateVolume = useCallback(() => {
-        if (analyserRef.current && avatarContainerRef.current && appState === STATE.USER_SPEAKING) {
+        // STATE.READY (待機中) または STATE.USER_SPEAKING (発話中) の場合に可視化
+        const shouldVisualize = appState === STATE.READY || appState === STATE.USER_SPEAKING
+
+        if (analyserRef.current && avatarContainerRef.current && shouldVisualize) {
             const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
             analyserRef.current.getByteFrequencyData(dataArray)
 
             // 平均音量を計算
             const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length
 
-            // 0.0 ~ 1.0 に正規化 (感度調整)
-            const normalizedVolume = Math.min(1, average / 50)
+            // 0.0 ~ 1.0 に正規化 (感度調整を少し上げる: /50 -> /40)
+            const normalizedVolume = Math.min(1, average / 40)
 
             avatarContainerRef.current.style.setProperty('--mic-volume', normalizedVolume)
         } else if (avatarContainerRef.current) {
@@ -234,6 +239,122 @@ function App() {
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
         }
     }, [updateVolume])
+
+    // WebSocket接続
+    const connectWebSocket = useCallback(() => {
+        setAppState(STATE.CONNECTING)
+        setError(null)
+
+        let wsUrl = import.meta.env.VITE_WS_URL
+        if (!wsUrl) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+            wsUrl = `${protocol}//${window.location.host}/ws`
+        }
+
+        const ws = new WebSocket(wsUrl)
+        wsRef.current = ws
+
+        ws.onopen = async () => {
+            console.log('WebSocket connected')
+
+            let token = null
+            if (auth.currentUser) {
+                try {
+                    token = await auth.currentUser.getIdToken()
+                } catch (e) {
+                    console.error("Failed to get token", e)
+                }
+            }
+
+            // 設定を送信
+            ws.send(JSON.stringify({
+                type: 'config',
+                userName: userName,
+                personality: personality,
+                token: token
+            }))
+
+            setAppState(STATE.READY)
+        }
+
+        ws.onmessage = async (event) => {
+            try {
+                const data = JSON.parse(event.data)
+
+                if (data.type === 'audio') {
+                    // Geminiからの音声データを受信
+                    const audioData = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))
+                    playbackQueueRef.current.push(audioData)
+
+                    // 出力トークンをカウント (24kHz)
+                    const tokens = estimateTokens(audioData.length, 24000)
+                    setTokenStats(prev => ({ ...prev, outputTokens: prev.outputTokens + tokens }))
+
+                    if (!isPlayingRef.current) {
+                        playAudioQueue()
+                    }
+                } else if (data.type === 'interrupted') {
+                    // 割り込み - キューをクリアして停止
+                    playbackQueueRef.current = []
+                    isPlayingRef.current = false
+                    setCurrentResponse('')
+                    setSubtitle('')
+                    setMouthOpen(false)
+                    setAppState(STATE.READY)
+                    console.log('Interrupted by user')
+                } else if (data.type === 'text') {
+                    // model_turn.parts[].text は思考過程なので、思考中状態にする
+                    setAppState(STATE.THINKING)
+                    console.log('[Thinking]', data.text)
+                } else if (data.type === 'transcript') {
+                    // AI発話開始時にユーザー発話を履歴に保存
+                    setCurrentUserTranscript(prev => {
+                        if (prev.trim()) {
+                            setConversationHistory(history => [
+                                ...history,
+                                { role: 'user', text: prev.trim(), timestamp: new Date() }
+                            ])
+                        }
+                        return ''
+                    })
+                    // 確定字幕（実際に話した内容）- 累積して表示
+                    setSubtitle(prev => prev + data.text)
+                    setCurrentResponse(prev => prev + data.text)
+                } else if (data.type === 'user_transcript') {
+                    // ユーザーの発話文字起こし - 累積
+                    setCurrentUserTranscript(prev => prev + data.text)
+                } else if (data.type === 'turn_complete') {
+                    // Geminiのターン終了 - 履歴に追加
+                    setCurrentResponse(prev => {
+                        if (prev.trim()) {
+                            setConversationHistory(history => [
+                                ...history,
+                                { role: 'assistant', text: prev.trim(), timestamp: new Date() }
+                            ])
+                        }
+                        return ''
+                    })
+                    setSubtitle('')
+                    setAppState(STATE.READY)
+                }
+            } catch (err) {
+                console.error('Message parse error:', err)
+            }
+        }
+
+        ws.onerror = (err) => {
+            console.error('WebSocket error:', err)
+            setError('WebSocket接続エラー')
+            setAppState(STATE.ERROR)
+        }
+
+        ws.onclose = () => {
+            console.log('WebSocket closed')
+            if (appState !== STATE.ERROR) {
+                setAppState(STATE.INIT)
+            }
+        }
+    }, [userName, personality])
 
     // ... existing methods
 
@@ -275,7 +396,32 @@ function App() {
 
             // AudioWorkletからのデータをWebSocketで送信
             workletNode.port.onmessage = (event) => {
-                // ... existing implementation
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    const audioData = event.data // Int16Array
+
+                    // Int16Array -> Uint8Array -> Binary String -> Base64
+                    // Note: String.fromCharCode.apply can exceed stack size for large buffers, 
+                    // so we use a loop or reduce chunk size if needed. 4096 samples (8kb) is border-line safe but loop is safer.
+                    const uint8Array = new Uint8Array(audioData.buffer)
+                    let binary = ''
+                    const len = uint8Array.byteLength
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(uint8Array[i])
+                    }
+                    const base64 = btoa(binary)
+
+                    wsRef.current.send(JSON.stringify({
+                        type: 'audio',
+                        audio: base64
+                    }))
+
+                    // 入力トークン概算 (16kHz PCM 16bit)
+                    // audioData is Int16Array, so byteLength is length * 2
+                    setTokenStats(prev => ({
+                        ...prev,
+                        inputTokens: prev.inputTokens + estimateTokens(audioData.byteLength)
+                    }))
+                }
             }
 
             return true

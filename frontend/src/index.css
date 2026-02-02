@@ -47,8 +47,17 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 0 40px var(--accent-glow);
-  transition: box-shadow 0.3s ease;
+
+  /* Fallback */
+  --mic-volume: 0;
+
+  /* Default State (Blue) - Now Reactive */
+  box-shadow:
+    0 0 calc(40px + (var(--mic-volume) * 60px)) rgba(99, 102, 241, 0.4),
+    0 0 calc(60px + (var(--mic-volume) * 100px)) rgba(99, 102, 241, 0.2);
+
+  transition: box-shadow 0.1s ease-out, transform 0.1s ease-out;
+  transform: scale(calc(1 + (var(--mic-volume) * 0.03)));
 }
 
 .avatar-container.speaking {
@@ -69,16 +78,13 @@ body {
 }
 
 /* User Listening (Green) */
+/* User Listening (Green) behavior is now merged into default state reactivity or specific override */
 .avatar-container.listening {
-  /* Dynamic shadow based on --mic-volume (0.0 to 1.0) */
-  /* We use a fallback of 0 if variable is not set */
-  --mic-volume: 0;
+  /* Green override */
   box-shadow:
     0 0 calc(60px + (var(--mic-volume) * 100px)) rgba(74, 222, 128, 0.6),
     0 0 calc(100px + (var(--mic-volume) * 150px)) rgba(74, 222, 128, 0.4);
   border: 2px solid rgba(74, 222, 128, 0.4);
-  transition: box-shadow 0.1s ease-out;
-  /* Smooth transition for frame-by-frame updates */
   transform: scale(calc(1 + (var(--mic-volume) * 0.05)));
 }
 
