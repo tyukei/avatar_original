@@ -7,18 +7,37 @@ import logging
 import websockets
 import firebase_admin
 from firebase_admin import auth
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from firebase_admin import auth
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Optional
+import google.generativeai as genai
+# from google.cloud import texttospeech (Removed)
+import base64
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Initialize firebase app
+from firebase_admin import credentials
+
 try:
     firebase_admin.get_app()
 except ValueError:
-    firebase_admin.initialize_app()
+    service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+    if service_account_json:
+        try:
+            cred = credentials.Certificate(json.loads(service_account_json))
+            firebase_admin.initialize_app(cred)
+            logging.info("Initialized Firebase with service account from env")
+        except Exception as e:
+            logging.error(f"Failed to load FIREBASE_SERVICE_ACCOUNT: {e}")
+            firebase_admin.initialize_app()
+    else:
+        firebase_admin.initialize_app()
 
 # Logger setup
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +63,100 @@ app.add_middleware(
 )
 
 GEMINI_URL = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={API_KEY}"
+
+# Configure GenAI
+genai.configure(api_key=API_KEY)
+
+# tts_client removal
+tts_client = None
+
+class ChatMessage(BaseModel):
+    role: str
+    text: str
+
+class TextToAudioRequest(BaseModel):
+    text: str
+    history: List[ChatMessage] = []
+    user_name: Optional[str] = "User"
+    personality: Optional[str] = "フレンドリーで親しみやすい口調を心がけてください"
+
+def synthesize_speech(text: str) -> str:
+    """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
+    try:
+        # Use the specific TTS model
+        logger.info(f"Synthesizing speech for: {text}") # LOG
+        model = genai.GenerativeModel("models/gemini-2.5-flash-preview-tts")
+        
+        # Request AUDIO modality explicitly
+        # Wrap text in explicit instruction to prevent model from generating text
+        prompt = f"Please read the following text: {text}"
+        resp = model.generate_content(
+            prompt,
+            generation_config={"response_modalities": ["AUDIO"]}
+        )
+        
+        # Extract audio data from the first part
+        for part in resp.parts:
+            if part.inline_data:
+                # Return base64 encoded string directly from the blob
+                # inline_data.data is bytes
+                return base64.b64encode(part.inline_data.data).decode("utf-8")
+        
+        raise ValueError("No audio content generated")
+
+    except Exception as e:
+        logger.error(f"TTS Error: {e}")
+        # Identify if fallback is needed or just re-raise
+        raise e
+
+@app.post("/chat/text_to_audio")
+async def chat_text_to_audio(request: TextToAudioRequest):
+    try:
+        # 1. Generate text with Gemini
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        system_instruction = f"""あなたは音声アバターです。以下のルールに従ってください：
+- 日本語で会話してください
+- 返答は短く、話し言葉を使ってください
+- 不必要に長い説明は避けてください
+- 会話の相手の名前は「{request.user_name}」です。名前で呼びかけてください。
+- 性格・口調の設定: {request.personality}
+- 会話の相手として自然に振る舞ってください"""
+
+        chat = model.start_chat(history=[
+            {"role": "user" if m.role == "user" else "model", "parts": [m.text]}
+            for m in request.history
+        ])
+        
+        # Add system instruction effect by prepending or using system_instruction argument if supported by start_chat in this SDK version
+        # For simple compatibility, we can prepend it to the history or strictly set it.
+        # gemini-1.5-flash supports system_instruction on init.
+        model_with_instruction = genai.GenerativeModel(
+            "gemini-2.5-flash",
+            system_instruction=system_instruction
+        )
+        chat = model_with_instruction.start_chat(history=[
+            {"role": "user" if m.role == "user" else "model", "parts": [m.text]}
+            for m in request.history
+        ])
+
+        response = chat.send_message(request.text)
+        response_text = response.text
+
+        # 2. Synthesize Audio
+        audio_base64 = synthesize_speech(response_text)
+
+        # 3. Return
+        return JSONResponse({
+            "text": response_text,
+            "audio": audio_base64, # base64 mp3
+            "transcript": response_text
+        })
+
+    except Exception as e:
+        logger.error(f"Error in text_to_audio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get("/version")
