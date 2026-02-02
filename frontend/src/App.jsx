@@ -159,6 +159,18 @@ function App() {
         return () => unsubscribe()
     }, [])
 
+    // Auto-start if mic permission already granted
+    useEffect(() => {
+        const micPermissionGranted = localStorage.getItem('mic_permission_granted') === 'true'
+        if (user && tosAccepted && micPermissionGranted && appState === STATE.INIT) {
+            // Auto-start after a short delay to ensure UI is ready
+            const timer = setTimeout(() => {
+                handleStart()
+            }, 500)
+            return () => clearTimeout(timer)
+        }
+    }, [user, tosAccepted])
+
     const handleSignIn = async () => {
         try {
             await signInWithGoogle()
@@ -940,11 +952,17 @@ function App() {
             const success = await startAudioCapture()
             if (success) {
                 connectWebSocket()
+                // Save mic permission to localStorage on successful start
+                localStorage.setItem('mic_permission_granted', 'true')
             }
         } else if (mode === MODE.LFM) {
             await startLFMListening()
+            // Save mic permission to localStorage on successful start
+            localStorage.setItem('mic_permission_granted', 'true')
         } else {
             await startStandardListening()
+            // Save mic permission to localStorage on successful start
+            localStorage.setItem('mic_permission_granted', 'true')
         }
     }
 
