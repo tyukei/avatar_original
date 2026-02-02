@@ -1202,11 +1202,7 @@ function App() {
                         </div>
                     )}
 
-                    {/* ステータス表示 - LFM Mode Stop Button logic needed */}
-                    <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white/50 text-sm font-light tracking-wider z-20 flex flex-col items-center gap-2">
-                        <div>{STATUS_LABELS[appState]}</div>
-                        {/* Stop Button Removed for LFM as requested */}
-                    </div>
+
 
                     {appState === STATE.INIT && (
                         !user ? (
