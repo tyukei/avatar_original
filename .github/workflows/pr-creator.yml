@@ -9,11 +9,68 @@ on:
         default: 'main'
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
+  test-before-pr:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "backend/.python-version"
+          
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          uv sync --frozen
+          
+      - name: Fix and Format Backend (Ruff)
+        run: |
+          cd backend
+          uv run ruff check --fix .
+          uv run ruff format .
+          
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto fixes by ruff"
+          file_pattern: 'backend/**'
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+          
+      - name: Lint Frontend
+        run: |
+          cd frontend
+          npm run lint
+          
+      - name: Build Frontend
+        run: |
+          cd frontend
+          echo "VITE_WS_URL=wss://example.com" > .env
+          npm run build
+
   create-pr:
+    needs: test-before-pr
     runs-on: ubuntu-latest
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
