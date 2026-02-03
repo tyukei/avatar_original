@@ -38,7 +38,7 @@ wheels = [
 
 [[package]]
 name = "backend-python"
-version = "0.1.17"
+version = "0.1.18"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
