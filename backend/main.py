@@ -45,9 +45,10 @@ except ValueError:
             except json.JSONDecodeError:
                 # Try Base64 decoding if not valid JSON
                 import base64
+
                 decoded_json = base64.b64decode(service_account_json).decode("utf-8")
                 cred = credentials.Certificate(json.loads(decoded_json))
-            
+
             firebase_admin.initialize_app(cred)
             logging.info("Initialized Firebase with service account from env")
         except Exception as e:
