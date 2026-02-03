@@ -153,7 +153,10 @@ def synthesize_speech(text: str) -> str:
 
                     # Return base64 encoded string directly from the blob
                     # inline_data.data is bytes
-                    return base64.b64encode(audio_data).decode("utf-8")
+                    b64_str = base64.b64encode(audio_data).decode("utf-8")
+                    # Remove any whitespace/newlines just in case
+                    b64_str = b64_str.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                    return b64_str
         else:
             logger.error(f"TTS Generation failed or blocked. Response: {resp}")
 

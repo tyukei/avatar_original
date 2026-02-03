@@ -242,18 +242,30 @@ function App() {
 
     // Base64デコードヘルパー (URL-safe対応)
     const base64ToUint8Array = (base64String) => {
-        if (!base64String) return new Uint8Array(0)
-
-        // URL-safe characters replacement
-        let base64 = base64String.replace(/-/g, '+').replace(/_/g, '/')
-
-        // Padding
-        const pad = base64.length % 4
-        if (pad) {
-            base64 += '='.repeat(4 - pad)
+        if (!base64String) {
+            console.error("Base64 decode error: Empty input")
+            return new Uint8Array(0)
         }
 
         try {
+            // Remove any whitespace, newlines, or carriage returns
+            let base64 = base64String.trim().replace(/\s/g, '')
+
+            // URL-safe characters replacement
+            base64 = base64.replace(/-/g, '+').replace(/_/g, '/')
+
+            // Padding
+            const pad = base64.length % 4
+            if (pad) {
+                base64 += '='.repeat(4 - pad)
+            }
+
+            // Validate base64 string
+            if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+                console.error("Invalid base64 string format:", base64.substring(0, 100))
+                throw new Error("Invalid base64 format")
+            }
+
             const binaryString = atob(base64)
             const len = binaryString.length
             const bytes = new Uint8Array(len)
@@ -263,7 +275,9 @@ function App() {
             return bytes
         } catch (e) {
             console.error("Base64 decode error:", e)
-            throw new Error("音声データのデコードに失敗しました")
+            console.error("Input length:", base64String?.length)
+            console.error("Input preview:", base64String?.substring(0, 100))
+            throw new Error("音声データのデコードに失敗しました: " + e.message)
         }
     }
 
@@ -434,6 +448,18 @@ function App() {
             // Response is JSON now: { audio: "base64...", transcript: "..." }
             const data = await res.json()
 
+            // Debug logging
+            console.log("LFM Response data keys:", Object.keys(data))
+            console.log("Audio data exists:", !!data.audio)
+            console.log("Audio data type:", typeof data.audio)
+            console.log("Audio data length:", data.audio?.length)
+            console.log("Audio data preview:", data.audio?.substring(0, 50))
+
+            // Check if audio data exists
+            if (!data.audio) {
+                throw new Error("サーバーから音声データが返されませんでした")
+            }
+
             // Decode Audio
             const bytes = base64ToUint8Array(data.audio)
 
@@ -549,6 +575,7 @@ function App() {
 
                 if (data.type === 'audio') {
                     // Geminiからの音声データを受信
+                    console.log("WebSocket audio data length:", data.audio?.length)
                     const audioData = base64ToUint8Array(data.audio)
 
                     // Convert to Float32 immediately
@@ -789,8 +816,14 @@ function App() {
             const data = await res.json()
 
             console.log("Response data:", data) // LOG
+            console.log("Audio data type:", typeof data.audio)
+            console.log("Audio data length:", data.audio?.length)
+            console.log("Audio data preview:", data.audio?.substring(0, 50))
 
             if (data.audio) {
+                if (typeof data.audio !== 'string' || data.audio.trim() === '') {
+                    throw new Error("無効な音声データです")
+                }
                 // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
                 const bytes = base64ToUint8Array(data.audio)
                 const len = bytes.length
