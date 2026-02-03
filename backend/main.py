@@ -58,7 +58,9 @@ except ValueError:
         firebase_admin.initialize_app()
 
 # Logger setup
-logging.basicConfig(level=logging.INFO)
+# ログレベルを環境変数で制御（デフォルトはINFO）
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, log_level, logging.INFO))
 logger = logging.getLogger(__name__)
 
 # Environment variables
@@ -115,10 +117,10 @@ def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
 
 def synthesize_speech(text: str) -> str:
     """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
-    logger.info(f"[TTS] Starting synthesis for text: '{text}'")
+    logger.debug(f"[TTS] Starting synthesis for text: '{text}'")
     try:
         # Use the specific TTS model
-        logger.info(f"[TTS] Calling Gemini TTS model")  # LOG
+        logger.debug(f"[TTS] Calling Gemini TTS model")
 
         # Request AUDIO modality explicitly
         prompt = f"Please read the following text: {text}"
@@ -154,12 +156,12 @@ def synthesize_speech(text: str) -> str:
 
                     # Return base64 encoded string directly from the blob
                     # inline_data.data is bytes
-                    logger.info(f"[TTS] Audio data size: {len(audio_data)} bytes")
+                    logger.debug(f"[TTS] Audio data size: {len(audio_data)} bytes")
                     b64_str = base64.b64encode(audio_data).decode("utf-8")
                     # Remove any whitespace/newlines just in case
                     b64_str = b64_str.strip().replace('\n', '').replace('\r', '').replace(' ', '')
-                    logger.info(f"[TTS] Base64 encoded, length: {len(b64_str)} chars")
-                    logger.info(f"[TTS] Base64 preview: {b64_str[:50]}...")
+                    logger.debug(f"[TTS] Base64 encoded, length: {len(b64_str)} chars")
+                    logger.debug(f"[TTS] Base64 preview: {b64_str[:50]}...")
                     return b64_str
         else:
             logger.error(f"TTS Generation failed or blocked. Response: {resp}")
@@ -225,11 +227,11 @@ async def chat_text_to_audio(request: TextToAudioRequest):
 async def speech_to_speech(
     audio: UploadFile = File(...),
 ):
-    logger.info(f"Received speech-to-speech request. Filename: {audio.filename}, Content-Type: {audio.content_type}")
+    logger.debug(f"Received speech-to-speech request. Filename: {audio.filename}, Content-Type: {audio.content_type}")
     try:
         # Read uploaded audio
         audio_bytes = await audio.read()
-        logger.info(f"Audio bytes read: {len(audio_bytes)} bytes")
+        logger.debug(f"Audio bytes read: {len(audio_bytes)} bytes")
         mime_type = audio.content_type
 
         if not mime_type or mime_type == "application/octet-stream":
@@ -277,8 +279,8 @@ async def speech_to_speech(
         # 2. Synthesize Audio
         # synthesize_speech returns base64 str (MP3 default)
         audio_b64 = synthesize_speech(response_text)
-        logger.info(f"Audio base64 generated, length: {len(audio_b64)} chars")
-        logger.info(f"Audio base64 preview: {audio_b64[:50]}...")
+        logger.debug(f"Audio base64 generated, length: {len(audio_b64)} chars")
+        logger.debug(f"Audio base64 preview: {audio_b64[:50]}...")
 
         # 3. Return as JSON
         # LFM 2.5 server logic also generates text ("text_out").
@@ -288,7 +290,7 @@ async def speech_to_speech(
             "transcript": response_text,
             "mime_type": "audio/mp3",  # synthesize_speech returns MP3 (or WAV wrapped) base64
         }
-        logger.info(f"Returning JSON response with keys: {list(response_data.keys())}")
+        logger.debug(f"Returning JSON response with keys: {list(response_data.keys())}")
         return JSONResponse(response_data)
 
     except Exception as e:

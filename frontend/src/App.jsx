@@ -2,6 +2,19 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { signInWithGoogle, auth } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
+// デバッグログヘルパー（開発環境でのみ出力）
+const debugLog = (...args) => {
+    if (import.meta.env.DEV) {
+        console.log(...args)
+    }
+}
+
+const debugError = (...args) => {
+    if (import.meta.env.DEV) {
+        console.error(...args)
+    }
+}
+
 // 状態定義
 const STATE = {
     INIT: 'init',
@@ -138,13 +151,13 @@ function App() {
     const [isLoggingIn, setIsLoggingIn] = useState(false)
 
     useEffect(() => {
-        console.log("FRONTEND v0.1.20 LOADED")
+        debugLog("FRONTEND v0.1.20 LOADED")
         // バックエンドのバージョンを取得 (これを正とする)
         fetch('/version')
             .then(res => res.json())
             .then(data => setAppVersion(data.version))
             .catch(err => {
-                console.error('Failed to fetch backend version:', err)
+                debugError('Failed to fetch backend version:', err)
                 setAppVersion('unknown')
             })
     }, [])
@@ -152,13 +165,7 @@ function App() {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser)
-            if (currentUser) {
-                // ログインしたらトークンを取得してバックエンドに送るなどの処理が可能
-                currentUser.getIdToken().then(token => {
-                    console.log("ID Token:", token)
-                    // 必要に応じてlocalStorageやContextに保存
-                })
-            }
+            // トークンは必要な時（WebSocket接続時など）に取得する
         })
         return () => unsubscribe()
     }, [])
@@ -186,7 +193,7 @@ function App() {
                 alert("ログインがキャンセルされました")
             } else if (error.code === 'auth/cancelled-popup-request') {
                 // 重複してポップアップが開かれた場合など。無視して良いか、アラート出すか。
-                console.log("Popup cancelled (duplicate request)")
+                debugLog("Popup cancelled (duplicate request)")
             } else {
                 alert("ログインに失敗しました: " + error.message)
             }
@@ -243,7 +250,7 @@ function App() {
     // Base64デコードヘルパー (URL-safe対応)
     const base64ToUint8Array = (base64String) => {
         if (!base64String) {
-            console.error("Base64 decode error: Empty input")
+            debugError("Base64 decode error: Empty input")
             return new Uint8Array(0)
         }
 
@@ -262,7 +269,7 @@ function App() {
 
             // Validate base64 string
             if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-                console.error("Invalid base64 string format:", base64.substring(0, 100))
+                debugError("Invalid base64 string format:", base64.substring(0, 100))
                 throw new Error("Invalid base64 format")
             }
 
@@ -274,9 +281,9 @@ function App() {
             }
             return bytes
         } catch (e) {
-            console.error("Base64 decode error:", e)
-            console.error("Input length:", base64String?.length)
-            console.error("Input preview:", base64String?.substring(0, 100))
+            debugError("Base64 decode error:", e)
+            debugError("Input length:", base64String?.length)
+            debugError("Input preview:", base64String?.substring(0, 100))
             throw new Error("音声データのデコードに失敗しました: " + e.message)
         }
     }
@@ -356,7 +363,7 @@ function App() {
 
                 if (average > THRESHOLD) {
                     if (!isSpeakingRef.current) {
-                        console.log("VAD: Speech detected")
+                        debugLog("VAD: Speech detected")
                         isSpeakingRef.current = true
                         speechStartRef.current = Date.now()
                     }
@@ -370,7 +377,7 @@ function App() {
                             // Check duration
                             const diff = Date.now() - silenceStartRef.current
                             if (diff > 1200) { // 1.2 seconds silence
-                                console.log("VAD: Silence detected, stopping recording...")
+                                debugLog("VAD: Silence detected, stopping recording...")
                                 stopLFMListening()
                                 return // End loop
                             }
@@ -406,7 +413,7 @@ function App() {
             setAppState(STATE.USER_SPEAKING)
             return true
         } catch (err) {
-            console.error('LFM Recording Error:', err)
+            debugError('LFM Recording Error:', err)
             setError('マイクへのアクセスエラー')
             setAppState(STATE.ERROR)
             return false
@@ -448,24 +455,24 @@ function App() {
             // Response is JSON now: { audio: "base64...", transcript: "..." }
             // First get the text to debug
             const responseText = await res.text()
-            console.log("LFM Response raw text length:", responseText.length)
-            console.log("LFM Response text preview:", responseText.substring(0, 200))
+            debugLog("LFM Response raw text length:", responseText.length)
+            debugLog("LFM Response text preview:", responseText.substring(0, 200))
 
             let data
             try {
                 data = JSON.parse(responseText)
             } catch (parseError) {
-                console.error("JSON parse error:", parseError)
-                console.error("Response text:", responseText)
+                debugError("JSON parse error:", parseError)
+                debugError("Response text:", responseText)
                 throw new Error("サーバーからの応答をパースできませんでした: " + parseError.message)
             }
 
             // Debug logging
-            console.log("LFM Response data keys:", Object.keys(data))
-            console.log("Audio data exists:", !!data.audio)
-            console.log("Audio data type:", typeof data.audio)
-            console.log("Audio data length:", data.audio?.length)
-            console.log("Audio data preview:", data.audio?.substring(0, 50))
+            debugLog("LFM Response data keys:", Object.keys(data))
+            debugLog("Audio data exists:", !!data.audio)
+            debugLog("Audio data type:", typeof data.audio)
+            debugLog("Audio data length:", data.audio?.length)
+            debugLog("Audio data preview:", data.audio?.substring(0, 50))
 
             // Check if audio data exists
             if (!data.audio) {
@@ -508,7 +515,7 @@ function App() {
             playAudioQueue()
 
         } catch (e) {
-            console.error(e)
+            debugError('LFM Error:', e)
             setError('LFM Error: ' + e.message)
             setAppState(STATE.ERROR)
         }
@@ -559,14 +566,14 @@ function App() {
         wsRef.current = ws
 
         ws.onopen = async () => {
-            console.log('WebSocket connected')
+            debugLog('WebSocket connected')
 
             let token = null
             if (auth.currentUser) {
                 try {
                     token = await auth.currentUser.getIdToken()
                 } catch (e) {
-                    console.error("Failed to get token", e)
+                    debugError("Failed to get token", e)
                 }
             }
 
@@ -587,7 +594,7 @@ function App() {
 
                 if (data.type === 'audio') {
                     // Geminiからの音声データを受信
-                    console.log("WebSocket audio data length:", data.audio?.length)
+                    debugLog("WebSocket audio data length:", data.audio?.length)
                     const audioData = base64ToUint8Array(data.audio)
 
                     // Convert to Float32 immediately
@@ -613,11 +620,11 @@ function App() {
                     setSubtitle('')
                     setMouthOpen(false)
                     setAppState(STATE.READY)
-                    console.log('Interrupted by user')
+                    debugLog('Interrupted by user')
                 } else if (data.type === 'text') {
                     // model_turn.parts[].text は思考過程なので、思考中状態にする
                     setAppState(STATE.THINKING)
-                    console.log('[Thinking]', data.text)
+                    debugLog('[Thinking]', data.text)
                 } else if (data.type === 'transcript') {
                     // AI発話開始時にユーザー発話を履歴に保存
                     setCurrentUserTranscript(prev => {
@@ -650,7 +657,7 @@ function App() {
                     setAppState(STATE.READY)
                 }
             } catch (err) {
-                console.error('Message parse error:', err)
+                debugError('Message parse error:', err)
             }
         }
 
@@ -661,7 +668,7 @@ function App() {
         }
 
         ws.onclose = () => {
-            console.log('WebSocket closed')
+            debugLog('WebSocket closed')
             if (appState !== STATE.ERROR) {
                 setAppState(STATE.INIT)
             }
@@ -741,7 +748,7 @@ function App() {
             return true
         } catch (err) {
             // ... error handling
-            console.error('Audio capture error:', err)
+            debugError('Audio capture error:', err)
             setError('マイクへのアクセスが拒否されました')
             setAppState(STATE.ERROR)
             return false
@@ -775,7 +782,7 @@ function App() {
         }
 
         recognition.onerror = (event) => {
-            console.error("Speech Recognition Error", event.error)
+            debugError("Speech Recognition Error", event.error)
             if (event.error !== 'no-speech' && event.error !== 'aborted') {
                 setError('音声認識エラー: ' + event.error)
                 setAppState(STATE.ERROR)
@@ -827,22 +834,22 @@ function App() {
 
             // First get the text to debug
             const responseText = await res.text()
-            console.log("Standard Response raw text length:", responseText.length)
-            console.log("Standard Response text preview:", responseText.substring(0, 200))
+            debugLog("Standard Response raw text length:", responseText.length)
+            debugLog("Standard Response text preview:", responseText.substring(0, 200))
 
             let data
             try {
                 data = JSON.parse(responseText)
             } catch (parseError) {
-                console.error("JSON parse error:", parseError)
-                console.error("Response text:", responseText)
+                debugError("JSON parse error:", parseError)
+                debugError("Response text:", responseText)
                 throw new Error("サーバーからの応答をパースできませんでした: " + parseError.message)
             }
 
-            console.log("Response data:", data) // LOG
-            console.log("Audio data type:", typeof data.audio)
-            console.log("Audio data length:", data.audio?.length)
-            console.log("Audio data preview:", data.audio?.substring(0, 50))
+            debugLog("Response data:", data)
+            debugLog("Audio data type:", typeof data.audio)
+            debugLog("Audio data length:", data.audio?.length)
+            debugLog("Audio data preview:", data.audio?.substring(0, 50))
 
             if (data.audio) {
                 if (typeof data.audio !== 'string' || data.audio.trim() === '') {
@@ -851,7 +858,7 @@ function App() {
                 // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
                 const bytes = base64ToUint8Array(data.audio)
                 const len = bytes.length
-                console.log("Audio binary length:", len) // LOG
+                debugLog("Audio binary length:", len)
 
                 // Convert bytes to Float32 immediately (assuming Little Endian Int16)
                 const int16Array = new Int16Array(bytes.buffer)
@@ -859,7 +866,7 @@ function App() {
                 for (let i = 0; i < int16Array.length; i++) {
                     float32Array[i] = int16Array[i] / 32768.0
                 }
-                console.log("Float32 samples:", float32Array.length) // LOG
+                debugLog("Float32 samples:", float32Array.length)
 
                 playbackQueueRef.current.push(float32Array)
 
@@ -881,7 +888,7 @@ function App() {
             setSubtitle(data.transcript)
 
         } catch (e) {
-            console.error(e)
+            debugError('Standard mode error:', e)
             setError('送信エラー')
             setAppState(STATE.ERROR)
         }
@@ -913,7 +920,7 @@ function App() {
                 }
             } else if (mode === MODE.LFM && appState !== STATE.ERROR) {
                 // Restart LFM Listening Loop
-                console.log("Restarting LFM Listener...")
+                debugLog("Restarting LFM Listener...")
                 setAppState(STATE.READY) // Transitional
                 startLFMListening()
             } else {
@@ -1002,7 +1009,7 @@ function App() {
 
             source.start()
         } catch (err) {
-            console.error('Audio playback error:', err)
+            debugError('Audio playback error:', err)
             isPlayingRef.current = false
             playAudioQueue()
         }
@@ -1036,7 +1043,7 @@ function App() {
         if (audioContextRef.current.state === 'suspended') {
             await audioContextRef.current.resume()
         }
-        console.log("AudioContext State:", audioContextRef.current.state)
+        debugLog("AudioContext State:", audioContextRef.current.state)
 
         // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
         if (mode === MODE.LIVE) {
@@ -1124,7 +1131,7 @@ function App() {
                     try {
                         localStorage.setItem('custom_avatars', JSON.stringify(next))
                     } catch (e) {
-                        console.error('Failed to save to localStorage:', e)
+                        debugError('Failed to save to localStorage:', e)
                     }
                     return next
                 })
@@ -1160,7 +1167,7 @@ function App() {
             try {
                 localStorage.setItem('custom_avatars', JSON.stringify(next))
             } catch (e) {
-                console.error('Failed to save to localStorage:', e)
+                debugError('Failed to save to localStorage:', e)
             }
             return next
         })
