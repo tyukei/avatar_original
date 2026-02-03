@@ -154,6 +154,32 @@ firebase deploy --only hosting
 アクセス: `https://[PROJECT_ID].web.app`
 
 
+### 便利なスクリプト
+
+開発やデプロイを効率化するためのスクリプトが用意されています。
+
+#### 1. GitHub Secrets の一括設定 (`set_secrets.sh`)
+
+ローカルの環境変数ファイル (`frontend/.env.local`, `.env.secrets`) から値を読み込み、GitHub Secrets に一括で設定します。
+CI/CD による自動デプロイのセットアップに便利です。
+
+```bash
+./set_secrets.sh
+```
+
+*   **前提条件**: `gh` CLI がインストールされ、ログイン済みであること。
+
+#### 2. 一括手動デプロイ (`manual_deploy.sh`)
+
+フロントエンド (Firebase Hosting) とバックエンド (Cloud Run) をまとめてデプロイします。
+`.env.secrets` を読み込み、環境変数を設定した状態でデプロイを行います。
+
+```bash
+./manual_deploy.sh
+```
+
+*   **前提条件**: `gcloud`, `firebase` コマンドが設定済みであること。
+
 ### 4. トラブルシューティング
 
 #### デプロイ権限エラー (run.services.get denied)
