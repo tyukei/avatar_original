@@ -39,7 +39,15 @@ except ValueError:
     service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT")
     if service_account_json:
         try:
-            cred = credentials.Certificate(json.loads(service_account_json))
+            try:
+                # Try parsing as JSON first
+                cred = credentials.Certificate(json.loads(service_account_json))
+            except json.JSONDecodeError:
+                # Try Base64 decoding if not valid JSON
+                import base64
+                decoded_json = base64.b64decode(service_account_json).decode("utf-8")
+                cred = credentials.Certificate(json.loads(decoded_json))
+            
             firebase_admin.initialize_app(cred)
             logging.info("Initialized Firebase with service account from env")
         except Exception as e:

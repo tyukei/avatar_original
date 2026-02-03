@@ -44,14 +44,19 @@ jobs:
           docker push gcr.io/${{ secrets.FIREBASE_PROJECT_ID }}/avatar-backend:${{ github.sha }}
 
       - name: Deploy to Cloud Run
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
+          # Base64 encode the service account to avoid argument parsing issues
+          FIREBASE_SA_BASE64=$(echo -n "$FIREBASE_SA" | base64 -w 0)
+          
           gcloud run deploy avatar-backend \
             --image gcr.io/${{ secrets.FIREBASE_PROJECT_ID }}/avatar-backend:${{ github.sha }} \
             --platform managed \
             --region asia-northeast1 \
             --allow-unauthenticated \
             --set-env-vars GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
-            --set-env-vars FIREBASE_SERVICE_ACCOUNT=${{ secrets.FIREBASE_SERVICE_ACCOUNT }} \
+            --set-env-vars FIREBASE_SERVICE_ACCOUNT=$FIREBASE_SA_BASE64 \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
 
