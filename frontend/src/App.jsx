@@ -446,7 +446,19 @@ function App() {
             if (!res.ok) throw new Error(await res.text())
 
             // Response is JSON now: { audio: "base64...", transcript: "..." }
-            const data = await res.json()
+            // First get the text to debug
+            const responseText = await res.text()
+            console.log("LFM Response raw text length:", responseText.length)
+            console.log("LFM Response text preview:", responseText.substring(0, 200))
+
+            let data
+            try {
+                data = JSON.parse(responseText)
+            } catch (parseError) {
+                console.error("JSON parse error:", parseError)
+                console.error("Response text:", responseText)
+                throw new Error("サーバーからの応答をパースできませんでした: " + parseError.message)
+            }
 
             // Debug logging
             console.log("LFM Response data keys:", Object.keys(data))
@@ -813,7 +825,19 @@ function App() {
 
             if (!res.ok) throw new Error(await res.text())
 
-            const data = await res.json()
+            // First get the text to debug
+            const responseText = await res.text()
+            console.log("Standard Response raw text length:", responseText.length)
+            console.log("Standard Response text preview:", responseText.substring(0, 200))
+
+            let data
+            try {
+                data = JSON.parse(responseText)
+            } catch (parseError) {
+                console.error("JSON parse error:", parseError)
+                console.error("Response text:", responseText)
+                throw new Error("サーバーからの応答をパースできませんでした: " + parseError.message)
+            }
 
             console.log("Response data:", data) // LOG
             console.log("Audio data type:", typeof data.audio)
