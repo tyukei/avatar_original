@@ -66,10 +66,42 @@ logger = logging.getLogger(__name__)
 # Environment variables
 API_KEY = os.getenv("GEMINI_API_KEY")
 PORT = int(os.getenv("PORT", 8080))
+MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", 50))
 
 if not API_KEY:
     logger.fatal("GEMINI_API_KEY environment variable is required")
     exit(1)
+
+# システムプロンプトテンプレート（速度最適化版）
+def build_system_instruction(user_name: str = "ユーザー", personality: str = "") -> str:
+    """
+    統一されたシステムプロンプトを生成（速度最適化版）
+
+    Args:
+        user_name: ユーザーの名前
+        personality: 性格・口調の設定
+
+    Returns:
+        システムインストラクション文字列
+    """
+    max_len = MAX_RESPONSE_LENGTH
+    base_instruction = f"""あなたは音声アバターです。以下のルールを厳密に守ってください：
+
+【重要】応答は必ず{max_len}文字以内にしてください。
+【重要】一文で簡潔に答えてください。
+
+- 日本語で会話
+- 話し言葉を使用
+- 相手の名前: {user_name}
+- 不要な説明は一切省略
+- 質問には直接的に回答"""
+
+    if personality:
+        base_instruction += f"\n- 性格・口調: {personality}"
+
+    base_instruction += f"\n\n【再確認】{max_len}文字以内、一文で簡潔に。"
+
+    return base_instruction
 
 app = FastAPI()
 
@@ -178,13 +210,7 @@ def synthesize_speech(text: str) -> str:
 async def chat_text_to_audio(request: TextToAudioRequest):
     try:
         # 1. Generate text with Gemini
-        system_instruction = f"""あなたは音声アバターです。以下のルールに従ってください：
-- 日本語で会話してください
-- 返答は短く、話し言葉を使ってください
-- 不必要に長い説明は避けてください
-- 会話の相手の名前は「{request.user_name}」です。名前で呼びかけてください。
-- 性格・口調の設定: {request.personality}
-- 会話の相手として自然に振る舞ってください"""
+        system_instruction = build_system_instruction(request.user_name, request.personality)
 
         # Convert history format
         # Old: [{"role": "user", "parts": ["text"]}]
@@ -226,8 +252,10 @@ async def chat_text_to_audio(request: TextToAudioRequest):
 @app.post("/api/speech-to-speech")
 async def speech_to_speech(
     audio: UploadFile = File(...),
+    user_name: str = "ユーザー",
+    personality: str = "",
 ):
-    logger.debug(f"Received speech-to-speech request. Filename: {audio.filename}, Content-Type: {audio.content_type}")
+    logger.debug(f"Received speech-to-speech request. Filename: {audio.filename}, User: {user_name}")
     try:
         # Read uploaded audio
         audio_bytes = await audio.read()
@@ -243,13 +271,7 @@ async def speech_to_speech(
                 mime_type = "audio/wav"  # Default fallback
 
         # 1. Generate text with Gemini
-        system_instruction = """あなたは音声アバターです。以下のルールに従ってください：
-- 日本語で会話してください
-- 返答は短く、話し言葉を使ってください
-- 不必要に長い説明は避けてください
-- 会話の相手は「ユーザー」です。
-- 性格・口調の設定: フレンドリーで親しみやすい口調を心がけてください
-- 会話の相手として自然に振る舞ってください"""
+        system_instruction = build_system_instruction(user_name, personality)
 
         prompt_parts = [
             types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
@@ -357,13 +379,7 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
     # Construct System Instruction
-    system_instruction_text = f"""あなたは音声アバターです。以下のルールに従ってください：
-- 日本語で会話してください
-- 返答は短く、話し言葉を使ってください
-- 不必要に長い説明は避けてください
-- 会話の相手の名前は「{user_name}」です。名前で呼びかけてください。
-- 性格・口調の設定: {personality}
-- 会話の相手として自然に振る舞ってください"""
+    system_instruction_text = build_system_instruction(user_name, personality)
 
     try:
         async with websockets.connect(GEMINI_URL) as gemini_ws:
