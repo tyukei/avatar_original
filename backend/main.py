@@ -3,13 +3,14 @@ import json
 import tomllib
 import io
 import wave
-
 import asyncio
 import logging
+
+
 import websockets
 import firebase_admin
 from firebase_admin import auth, credentials
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Response, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -131,7 +132,7 @@ def synthesize_speech(text: str) -> str:
                              try:
                                  rate_str = mime_type.split("rate=")[1].split(";")[0]
                                  sample_rate = int(rate_str)
-                             except:
+                             except (ValueError, IndexError):
                                  pass
                          logger.info(f"Converting PCM to WAV (rate={sample_rate})")
                          audio_data = pcm_to_wav(audio_data, sample_rate)
@@ -200,9 +201,6 @@ async def chat_text_to_audio(request: TextToAudioRequest):
         logger.error(f"Error in text_to_audio: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-import json
-from fastapi import Form
 
 @app.post("/api/speech-to-speech")
 async def speech_to_speech(
