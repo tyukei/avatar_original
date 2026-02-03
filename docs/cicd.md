@@ -9,7 +9,7 @@ GitHub Actionsを使用して、コードがプッシュされるたびに自動
 
 ### Python Syntax Check
 
-- **ファイル**: `.github/workflows/test.yml`
+- **ファイル**: `.github/workflows/ci.yml`
 - **トリガー**: `main` ブランチへの Push または Pull Request
 - **対象ディレクトリ**: `backend_python/`
 
@@ -28,7 +28,7 @@ uv run python -m compileall . -q
 
 ### Frontend Build
 
-- **ファイル**: `.github/workflows/test.yml`（`frontend-build` job）
+- **ファイル**: `.github/workflows/ci.yml`（`frontend-build` job）
 - **トリガー**: `main` ブランチへの Push または Pull Request
 - **対象ディレクトリ**: `frontend/`
 
@@ -48,7 +48,7 @@ npm run build
 
 ### Cloud Run Deployment
 
-- **ファイル**: `.github/workflows/firebase-hosting-merge.yml`（`deploy_backend` job）
+- **ファイル**: `.github/workflows/deploy-production.yml`（`deploy_backend` job）
 - **トリガー**: `main` ブランチへのマージ
 - **対象ディレクトリ**: `backend/`
 - **デプロイ先**: Google Cloud Run（asia-northeast1）
@@ -76,7 +76,7 @@ docker run -p 8080:8080 \
 
 ### PR Preview Deployment
 
-- **ファイル**: `.github/workflows/test.yml`（`deploy-preview` job）
+- **ファイル**: `.github/workflows/ci.yml`（`deploy-preview` job）
 - **トリガー**: Pull Requestの作成・更新
 - **対象**: フロントエンドのみ
 - **デプロイ先**: Firebase Hosting プレビューチャンネル
