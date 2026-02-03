@@ -19,9 +19,7 @@ try:
     response = client.models.generate_content(
         model=model_name,
         contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"]
-        )
+        config=types.GenerateContentConfig(response_modalities=["AUDIO"]),
     )
 
     print("Response candidates:", response.candidates)
