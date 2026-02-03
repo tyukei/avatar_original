@@ -9,7 +9,7 @@ on:
         default: 'main'
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -36,11 +36,17 @@ jobs:
           cd backend
           uv sync --frozen
           
-      - name: Check Backend Format (Ruff)
+      - name: Fix and Format Backend (Ruff)
         run: |
           cd backend
-          uv run ruff check .
-          uv run ruff format --check .
+          uv run ruff check --fix .
+          uv run ruff format .
+          
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto fixes by ruff"
+          file_pattern: 'backend/**'
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
