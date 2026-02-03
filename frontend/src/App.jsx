@@ -134,6 +134,9 @@ function App() {
     // バージョン情報
     const [appVersion, setAppVersion] = useState('loading...')
 
+    // ログイン処理中ステート
+    const [isLoggingIn, setIsLoggingIn] = useState(false)
+
     useEffect(() => {
         // バックエンドのバージョンを取得 (これを正とする)
         fetch('/version')
@@ -172,11 +175,22 @@ function App() {
     }, [user, tosAccepted])
 
     const handleSignIn = async () => {
+        if (isLoggingIn) return
+        setIsLoggingIn(true)
         try {
             await signInWithGoogle()
         } catch (error) {
             console.error("Login failed", error)
-            alert("ログインに失敗しました")
+            if (error.code === 'auth/popup-closed-by-user') {
+                alert("ログインがキャンセルされました")
+            } else if (error.code === 'auth/cancelled-popup-request') {
+                // 重複してポップアップが開かれた場合など。無視して良いか、アラート出すか。
+                console.log("Popup cancelled (duplicate request)")
+            } else {
+                alert("ログインに失敗しました: " + error.message)
+            }
+        } finally {
+            setIsLoggingIn(false)
         }
     }
 
@@ -223,6 +237,33 @@ function App() {
         const samples = audioBytes / bytesPerSample
         const seconds = samples / sampleRate
         return Math.ceil(seconds * 25) // 約25トークン/秒
+    }
+
+    // Base64デコードヘルパー (URL-safe対応)
+    const base64ToUint8Array = (base64String) => {
+        if (!base64String) return new Uint8Array(0)
+
+        // URL-safe characters replacement
+        let base64 = base64String.replace(/-/g, '+').replace(/_/g, '/')
+
+        // Padding
+        const pad = base64.length % 4
+        if (pad) {
+            base64 += '='.repeat(4 - pad)
+        }
+
+        try {
+            const binaryString = atob(base64)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+            }
+            return bytes
+        } catch (e) {
+            console.error("Base64 decode error:", e)
+            throw new Error("音声データのデコードに失敗しました")
+        }
     }
 
     const wsRef = useRef(null)
@@ -393,12 +434,8 @@ function App() {
             const data = await res.json()
 
             // Decode Audio
-            const binaryString = atob(data.audio)
-            const len = binaryString.length
-            const bytes = new Uint8Array(len)
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i)
-            }
+            const bytes = base64ToUint8Array(data.audio)
+
             // Create ArrayBuffer from bytes
             const arrayBuffer = bytes.buffer
 
@@ -510,9 +547,8 @@ function App() {
                 const data = JSON.parse(event.data)
 
                 if (data.type === 'audio') {
-                    // Geminiからの音声データを受信 (PCM 16kHz/24kHz depends on model, usually 24kHz for output in Live API?)
-                    // The Live API beta often returns 24kHz PCM.
-                    const audioData = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))
+                    // Geminiからの音声データを受信
+                    const audioData = base64ToUint8Array(data.audio)
 
                     // Convert to Float32 immediately
                     const int16Array = new Int16Array(audioData.buffer)
@@ -644,6 +680,8 @@ function App() {
                     for (let i = 0; i < len; i++) {
                         binary += String.fromCharCode(uint8Array[i])
                     }
+                    // URL-safe Base64 conversion usually not needed for outgoing standard btoa (returns standard base64)
+                    // But safe to just send standard.
                     const base64 = btoa(binary)
 
                     wsRef.current.send(JSON.stringify({
@@ -753,14 +791,9 @@ function App() {
 
             if (data.audio) {
                 // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
-                const binaryString = atob(data.audio)
-                const len = binaryString.length
+                const bytes = base64ToUint8Array(data.audio)
+                const len = bytes.length
                 console.log("Audio binary length:", len) // LOG
-
-                const bytes = new Uint8Array(len)
-                for (let i = 0; i < len; i++) {
-                    bytes[i] = binaryString.charCodeAt(i)
-                }
 
                 // Convert bytes to Float32 immediately (assuming Little Endian Int16)
                 const int16Array = new Int16Array(bytes.buffer)
@@ -1228,6 +1261,7 @@ function App() {
                                 <p style={{ marginBottom: '1rem' }}>アプリを開始するにはログインが必要です</p>
                                 <button
                                     onClick={handleSignIn}
+                                    disabled={isLoggingIn}
                                     style={{
                                         padding: '0.75rem 1.5rem',
                                         background: '#4285F4',
@@ -1240,7 +1274,9 @@ function App() {
                                         alignItems: 'center',
                                         gap: '0.5rem',
                                         fontSize: '1rem',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                        opacity: isLoggingIn ? 0.7 : 1,
+                                        cursor: isLoggingIn ? 'not-allowed' : 'pointer'
                                     }}
                                 >
                                     <svg width="18" height="18" viewBox="0 0 18 18">
@@ -1313,6 +1349,7 @@ function App() {
                         ) : (
                             <button
                                 onClick={handleSignIn}
+                                disabled={isLoggingIn}
                                 style={{
                                     width: '100%',
                                     padding: '0.75rem',
@@ -1325,7 +1362,9 @@ function App() {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: '0.5rem'
+                                    gap: '0.5rem',
+                                    opacity: isLoggingIn ? 0.7 : 1,
+                                    cursor: isLoggingIn ? 'not-allowed' : 'pointer'
                                 }}
                             >
                                 <svg width="18" height="18" viewBox="0 0 18 18">
