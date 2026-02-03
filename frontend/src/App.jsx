@@ -138,6 +138,7 @@ function App() {
     const [isLoggingIn, setIsLoggingIn] = useState(false)
 
     useEffect(() => {
+        console.log("FRONTEND v0.1.20 LOADED")
         // バックエンドのバージョンを取得 (これを正とする)
         fetch('/version')
             .then(res => res.json())

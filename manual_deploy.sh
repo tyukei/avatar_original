@@ -24,7 +24,7 @@ echo "✅ Secrets loaded. Project ID: $FIREBASE_PROJECT_ID"
 echo "🚀 Deploying Frontend..."
 cd frontend
 echo "📦 Installing dependencies..."
-npm ci
+npm install
 echo "🏗️  Building frontend (VITE_WS_URL=$VITE_WS_URL)..."
 npm run build
 echo "fw  Deploying to Firebase Hosting..."
