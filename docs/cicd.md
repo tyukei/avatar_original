@@ -46,6 +46,33 @@ npm install
 npm run build
 ```
 
+### Cloud Run Deployment
+
+- **ファイル**: `.github/workflows/firebase-hosting-merge.yml`（`deploy_backend` job）
+- **トリガー**: `main` ブランチへのマージ
+- **対象ディレクトリ**: `backend/`
+- **デプロイ先**: Google Cloud Run（asia-northeast1）
+
+#### 実行内容
+
+1. **Google Cloud認証**: サービスアカウントキーを使用してGCPに認証
+2. **Dockerイメージのビルド**: `backend/Dockerfile` を使用してイメージをビルド
+3. **GCRへのプッシュ**: Google Container Registry にイメージをプッシュ
+4. **Cloud Runへのデプロイ**: 
+   - サービス名: `avatar-backend`
+   - リージョン: `asia-northeast1`
+   - 環境変数: `GEMINI_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`
+   - 認証: 未認証アクセスを許可
+
+```bash
+# ローカルでのDockerビルドテスト（backendディレクトリ内で）
+docker build -t avatar-backend:test .
+docker run -p 8080:8080 \
+  -e GEMINI_API_KEY="your_key" \
+  -e FIREBASE_SERVICE_ACCOUNT='{"type": "service_account", ...}' \
+  avatar-backend:test
+```
+
 
 ## github設定
 
@@ -66,7 +93,11 @@ GitHub CLI (`gh`) を使用して、必要なシークレットを一括で設�
 # .env.secrets
 FIREBASE_PROJECT_ID=ここにプロジェクトID (gen-lang-client-02446999-262c1)
 GEMINI_API_KEY=ここにGeminiのAPIキー (AIza...)
+GCP_PROJECT_ID=ここにGCPプロジェクトID (gen-lang-client-02446999-262c1)
 ```
+
+> [!NOTE]
+> `FIREBASE_PROJECT_ID` と `GCP_PROJECT_ID` は通常同じ値になります。
 
 #### 2. シークレットの一括アップロード
 
@@ -78,15 +109,23 @@ gh secret set -f .env.secrets
 
 #### 3. サービスアカウントキー (JSON) の登録
 
-`FIREBASE_SERVICE_ACCOUNT` はJSON形式であるため、ファイルから直接登録します。
+**Firebase Admin SDK用**と**Cloud Run デプロイ用**のサービスアカウントキーを登録します。
 
 ```bash
-# JSONファイル (例: sa-key.json) から読み込んで登録
-gh secret set FIREBASE_SERVICE_ACCOUNT < sa-key.json
+# Firebase Admin SDK用（バックエンドでのFirebase初期化に使用）
+gh secret set FIREBASE_SERVICE_ACCOUNT < firebase-admin-sa-key.json
+
+# Cloud Run デプロイ用（GitHub ActionsからCloud Runへのデプロイに使用）
+gh secret set GCP_SA_KEY < cloud-run-deploy-sa-key.json
 
 # 登録後にローカルのキーファイルは削除推奨
-rm sa-key.json
+rm firebase-admin-sa-key.json cloud-run-deploy-sa-key.json
 ```
+
+> [!TIP]
+> 両方のサービスアカウントキーを同じファイルにしても問題ありませんが、権限の分離のため別々にすることを推奨します。
+> - Firebase Admin SDK用: Firebase Admin SDKの権限のみ
+> - Cloud Run デプロイ用: Cloud Run Admin、Service Account User、Storage Adminなどの権限が必要
 
 これにより、手動でのコピー＆ペーストによるミスを防ぐことができます。
 Web画面 (Settings > Secrets and variables > Actions) で確認すると、登録されたシークレットが表示されます。

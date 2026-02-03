@@ -81,7 +81,33 @@ npm run dev -- --host
 
 本番環境は Firebase Hosting (Frontend) と Cloud Run (Backend) で構成されます。
 
-### 1. 事前準備
+### 自動デプロイ (推奨)
+
+**mainブランチへのマージ時に自動的にデプロイされます。**
+
+- **Firebase Hosting**: フロントエンドが自動デプロイ
+- **Cloud Run**: バックエンドが自動デプロイ
+- **ワークフロー**: `.github/workflows/firebase-hosting-merge.yml`
+
+#### 必要な設定
+
+GitHub Secretsに以下を設定してください。詳細は [docs/cicd.md](docs/cicd.md) を参照。
+
+```bash
+# 必須シークレット
+gh secret set FIREBASE_PROJECT_ID -b "your-project-id"
+gh secret set GCP_PROJECT_ID -b "your-project-id"
+gh secret set GEMINI_API_KEY -b "your-api-key"
+gh secret set VITE_WS_URL -b "wss://your-backend-url/ws"
+gh secret set FIREBASE_SERVICE_ACCOUNT < firebase-admin-sa-key.json
+gh secret set GCP_SA_KEY < cloud-run-deploy-sa-key.json
+```
+
+### 手動デプロイ
+
+自動デプロイが設定されていない場合は、以下の手順で手動デプロイできます。
+
+#### 1. 事前準備
 
 デプロイには `gcloud` コマンドと `firebase` コマンドの認証が必要です。
 
@@ -99,7 +125,7 @@ firebase login
 - Firebase プロジェクトの紐付け
 - `.firebaserc` のプロジェクトID設定
 
-### 2. バックエンドのデプロイ (Cloud Run)
+#### 2. バックエンドのデプロイ (Cloud Run)
 
 ```bash
 # Cloud Build でコンテナをビルド
@@ -110,10 +136,10 @@ gcloud run deploy avatar-backend \
   --image gcr.io/[PROJECT_ID]/avatar-backend \
   --region asia-northeast1 \
   --allow-unauthenticated \
-  --set-env-vars GEMINI_API_KEY=[YOUR_API_KEY]
+  --set-env-vars GEMINI_API_KEY=[YOUR_API_KEY],FIREBASE_SERVICE_ACCOUNT=[YOUR_SERVICE_ACCOUNT_JSON]
 ```
 
-### 3. フロントエンドのデプロイ (Firebase Hosting)
+#### 3. フロントエンドのデプロイ (Firebase Hosting)
 
 ```bash
 # ビルド
