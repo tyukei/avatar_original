@@ -53,3 +53,176 @@ jobs:
             --set-env-vars FIREBASE_SERVICE_ACCOUNT=${{ secrets.FIREBASE_SERVICE_ACCOUNT }} \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
+
+  release:
+    needs: [build_and_deploy, deploy_backend]
+    runs-on: ubuntu-latest
+    if: success()
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version
+        id: bump_version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # pyproject.tomlからバージョンを取得
+          CURRENT_VERSION=$(grep -oP '^version = "\K[^"]+' backend/pyproject.toml)
+          echo "Current version: $CURRENT_VERSION"
+
+          NEW_VERSION=$(python3 -c "v='$CURRENT_VERSION'.split('.'); v[-1]=str(int(v[-1])+1); print('.'.join(v))")
+          echo "New version: $NEW_VERSION"
+
+          # pyproject.tomlのバージョンを更新
+          sed -i 's/^version = "'$CURRENT_VERSION'"/version = "'$NEW_VERSION'"/' backend/pyproject.toml
+          
+          # frontend/package.jsonのバージョンを更新
+          sed -i 's/"version": "'$CURRENT_VERSION'"/"version": "'$NEW_VERSION'"/' frontend/package.json
+
+          # frontend/index.htmlのバージョンを更新
+          sed -i 's/<meta name="version" content="'$CURRENT_VERSION'"/<meta name="version" content="'$NEW_VERSION'"/' frontend/index.html
+          echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          git add backend/pyproject.toml frontend/package.json frontend/index.html
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: bump version to ${{ steps.bump_version.outputs.VERSION }} [skip ci]"
+          git push
+
+      - name: Generate AI Summary
+        id: ai_summary
+        if: env.GEMINI_API_KEY != ''
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "LAST_TAG=$LAST_TAG"
+
+          # 1. PRの一覧を取得
+          if [ -n "$LAST_TAG" ]; then
+            PRS=$(gh pr list --state merged --base main --limit 50 --json title --template '{{range .}}- {{.title}}{{"\n"}}{{end}}')
+          else
+            PRS=$(gh pr list --state merged --limit 20 --json title --template '{{range .}}- {{.title}}{{"\n"}}{{end}}')
+          fi
+
+          # 2. コミットログを取得（マージコミット以外）
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges | head -n 50)
+          else
+            COMMITS=$(git log --oneline --no-merges | head -n 20)
+          fi
+
+          # 3. 両方を結合して提供
+          CONTENT_LIST=$(cat <<EOF
+          ### Merged Pull Requests:
+          $PRS
+
+          ### Commit Messages:
+          $COMMITS
+          EOF
+          )
+
+          if [ -z "${CONTENT_LIST// }" ]; then
+            SUMMARY="- 内部改善（詳細なし）"
+          else
+            export CONTENT_LIST
+            SUMMARY="$(python3 .github/scripts/generate_release_summary.py)"
+          fi
+
+          # ✅ 改行を潰さずに steps output として渡す
+          {
+            echo "SUMMARY<<EOF"
+            echo "$SUMMARY"
+            echo "EOF"
+            echo "PRS<<EOF"
+            echo "$PRS"
+            echo "EOF"
+            echo "COMMITS<<EOF"
+            echo "$COMMITS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump_version.outputs.VERSION }}
+          body: |
+            ## ✨ What's New
+            ${{ steps.ai_summary.outputs.SUMMARY || '- 内部改善（詳細なし）' }}
+
+            ---
+            ### 🛠 Details
+            #### Merged Pull Requests
+            ${{ steps.ai_summary.outputs.PRS || '- No merged PRs' }}
+
+            #### Commits
+            ${{ steps.ai_summary.outputs.COMMITS || '- No direct commits' }}
+          generate_release_notes: false
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete merged PR branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PRS=$(gh pr list --state merged --base main --limit 50 \
+            --json number,headRefName,headRepository \
+            --jq '.[] | @base64')
+
+          if [ -z "${PRS// }" ]; then
+            echo "No merged PRs found."
+            exit 0
+          fi
+
+          echo "$PRS" | while read -r row; do
+            _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
+
+            pr_number=$(_jq '.number')
+            branch=$(_jq '.headRefName')
+            repo_full=$(_jq '.headRepository.nameWithOwner')
+
+            # 保護：消したくないブランチ
+            if [[ "$branch" == "main" || "$branch" == "master" || "$branch" == "develop" || "$branch" == release/* ]]; then
+              echo "Skip protected branch: $branch (PR #$pr_number)"
+              continue
+            fi
+
+            # 既に消えてたらスキップ
+            if ! gh api -H "Accept: application/vnd.github+json" "/repos/$repo_full/git/ref/heads/$branch" >/dev/null 2>&1; then
+              echo "Branch already deleted: $repo_full:$branch (PR #$pr_number)"
+              continue
+            fi
+
+            echo "Deleting branch: $repo_full:$branch (PR #$pr_number)"
+            gh api -X DELETE -H "Accept: application/vnd.github+json" "/repos/$repo_full/git/ref/heads/$branch" || true
+          done
