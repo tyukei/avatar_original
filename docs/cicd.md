@@ -74,6 +74,32 @@ docker run -p 8080:8080 \
 ```
 
 
+### PR Preview Deployment
+
+- **ファイル**: `.github/workflows/test.yml`（`deploy-preview` job）
+- **トリガー**: Pull Requestの作成・更新
+- **対象**: フロントエンドのみ
+- **デプロイ先**: Firebase Hosting プレビューチャンネル
+
+#### 実行内容
+
+1. **テストの実行**: `test-backend` と `test-frontend` ジョブが並列実行
+2. **ビルドアーティファクトの保存**: `test-frontend` でビルドした成果物を保存
+3. **プレビューデプロイ**: 保存したアーティファクトを使用してFirebase Hostingにデプロイ
+4. **PR コメント**: プレビューURLがPRに自動的にコメントされる
+
+**メリット**:
+- テストとビルドが1回で完結（従来は2回）
+- ビルド時間の短縮
+- リソースの節約
+
+```bash
+# ローカルでのプレビュー確認（frontendディレクトリ内で）
+npm run build
+firebase hosting:channel:deploy preview-$(git rev-parse --short HEAD)
+```
+
+
 ## github設定
 
 forkまたはcloneしたリポジトリで、以下の手順で設定する。
