@@ -15,6 +15,27 @@
                 }
             },
             {
+                "source": "/api/**",
+                "run": {
+                    "serviceId": "avatar-backend",
+                    "region": "asia-northeast1"
+                }
+            },
+            {
+                "source": "/chat/**",
+                "run": {
+                    "serviceId": "avatar-backend",
+                    "region": "asia-northeast1"
+                }
+            },
+            {
+                "source": "/ws",
+                "run": {
+                    "serviceId": "avatar-backend",
+                    "region": "asia-northeast1"
+                }
+            },
+            {
                 "source": "**",
                 "destination": "/index.html"
             }
