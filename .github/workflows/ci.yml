@@ -1,4 +1,4 @@
-name: Test
+name: Test & Preview
 
 on:
   pull_request:
@@ -58,4 +58,45 @@ jobs:
         run: |
           cd frontend
           npm run lint
+          
+      - name: Build
+        run: |
+          cd frontend
+          echo "VITE_WS_URL=${{ secrets.VITE_WS_URL }}" > .env
           npm run build
+          
+      - name: Upload build artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist
+          retention-days: 1
+
+  deploy-preview:
+    name: Deploy Preview
+    needs: test-frontend
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist
+          
+      - name: Deploy to Firebase Hosting Preview
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+

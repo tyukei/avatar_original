@@ -1,18 +1,21 @@
 import os
 import json
 import tomllib
+import io
+import wave
 
 import asyncio
 import logging
 import websockets
 import firebase_admin
 from firebase_admin import auth, credentials
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Response, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # from google.cloud import texttospeech (Removed)
 import base64
@@ -63,7 +66,8 @@ app.add_middleware(
 GEMINI_URL = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={API_KEY}"
 
 # Configure GenAI
-genai.configure(api_key=API_KEY)
+# Configure GenAI Client
+client = genai.Client(api_key=API_KEY)
 
 # tts_client removal
 tts_client = None
@@ -81,26 +85,62 @@ class TextToAudioRequest(BaseModel):
     personality: Optional[str] = "フレンドリーで親しみやすい口調を心がけてください"
 
 
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
+    """Converts raw PCM data to WAV format."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    return buffer.getvalue()
+
 def synthesize_speech(text: str) -> str:
     """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
     try:
         # Use the specific TTS model
         logger.info(f"Synthesizing speech for: {text}")  # LOG
-        model = genai.GenerativeModel("models/gemini-2.5-flash-preview-tts")
-
+        
         # Request AUDIO modality explicitly
-        # Wrap text in explicit instruction to prevent model from generating text
         prompt = f"Please read the following text: {text}"
-        resp = model.generate_content(
-            prompt, generation_config={"response_modalities": ["AUDIO"]}
+        
+        resp = client.models.generate_content(
+            model="models/gemini-2.5-flash-preview-tts",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"]
+            )
         )
 
         # Extract audio data from the first part
-        for part in resp.parts:
-            if part.inline_data:
-                # Return base64 encoded string directly from the blob
-                # inline_data.data is bytes
-                return base64.b64encode(part.inline_data.data).decode("utf-8")
+        # In new SDK, response structure might differ slightly but usually compatible parts
+        if resp.candidates and resp.candidates[0].content:
+            for part in resp.candidates[0].content.parts:
+                if part.inline_data:
+                     # Log the mime_type to verify format
+                     mime_type = part.inline_data.mime_type
+                     logger.info(f"TTS MimeType received: {mime_type}")
+                     
+                     audio_data = part.inline_data.data
+                     
+                     if "audio/L16" in mime_type:
+                         # Extract sample rate if possible, default to 24000
+                         sample_rate = 24000
+                         if "rate=" in mime_type:
+                             try:
+                                 rate_str = mime_type.split("rate=")[1].split(";")[0]
+                                 sample_rate = int(rate_str)
+                             except:
+                                 pass
+                         logger.info(f"Converting PCM to WAV (rate={sample_rate})")
+                         audio_data = pcm_to_wav(audio_data, sample_rate)
+                     
+                     # Return base64 encoded string directly from the blob
+                     # inline_data.data is bytes
+                     return base64.b64encode(audio_data).decode("utf-8")
+        else:
+             logger.error(f"TTS Generation failed or blocked. Response: {resp}")
 
         raise ValueError("No audio content generated")
 
@@ -114,8 +154,6 @@ def synthesize_speech(text: str) -> str:
 async def chat_text_to_audio(request: TextToAudioRequest):
     try:
         # 1. Generate text with Gemini
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
         system_instruction = f"""あなたは音声アバターです。以下のルールに従ってください：
 - 日本語で会話してください
 - 返答は短く、話し言葉を使ってください
@@ -124,24 +162,23 @@ async def chat_text_to_audio(request: TextToAudioRequest):
 - 性格・口調の設定: {request.personality}
 - 会話の相手として自然に振る舞ってください"""
 
-        chat = model.start_chat(
-            history=[
-                {"role": "user" if m.role == "user" else "model", "parts": [m.text]}
-                for m in request.history
-            ]
-        )
+        # Convert history format
+        # Old: [{"role": "user", "parts": ["text"]}]
+        # New: [types.Content(role="user", parts=[types.Part.from_text("text")])] or dict
+        
+        gemini_history = []
+        for m in request.history:
+            role = "user" if m.role == "user" else "model"
+            gemini_history.append(
+                types.Content(role=role, parts=[types.Part.from_text(text=m.text)])
+            )
 
-        # Add system instruction effect by prepending or using system_instruction argument if supported by start_chat in this SDK version
-        # For simple compatibility, we can prepend it to the history or strictly set it.
-        # gemini-1.5-flash supports system_instruction on init.
-        model_with_instruction = genai.GenerativeModel(
-            "gemini-2.5-flash", system_instruction=system_instruction
-        )
-        chat = model_with_instruction.start_chat(
-            history=[
-                {"role": "user" if m.role == "user" else "model", "parts": [m.text]}
-                for m in request.history
-            ]
+        chat = client.chats.create(
+            model="gemini-2.5-flash",
+            history=gemini_history,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction
+            )
         )
 
         response = chat.send_message(request.text)
@@ -161,6 +198,78 @@ async def chat_text_to_audio(request: TextToAudioRequest):
 
     except Exception as e:
         logger.error(f"Error in text_to_audio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+import json
+from fastapi import Form
+
+@app.post("/api/speech-to-speech")
+async def speech_to_speech(
+    audio: UploadFile = File(...),
+):
+    try:
+        # Read uploaded audio
+        audio_bytes = await audio.read()
+        mime_type = audio.content_type
+        
+        if not mime_type or mime_type == "application/octet-stream":
+             if audio.filename.endswith(".wav"):
+                 mime_type = "audio/wav"
+             elif audio.filename.endswith(".mp3"):
+                 mime_type = "audio/mp3"
+             else:
+                 mime_type = "audio/wav"  # Default fallback
+
+        # 1. Generate text with Gemini
+        system_instruction = """あなたは音声アバターです。以下のルールに従ってください：
+- 日本語で会話してください
+- 返答は短く、話し言葉を使ってください
+- 不必要に長い説明は避けてください
+- 会話の相手は「ユーザー」です。
+- 性格・口調の設定: フレンドリーで親しみやすい口調を心がけてください
+- 会話の相手として自然に振る舞ってください"""
+
+        prompt_parts = [
+            types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+            types.Part.from_text(text="ユーザーの音声を聴いて、返答してください。")
+        ]
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[types.Content(role="user", parts=prompt_parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction
+            )
+        )
+        response_text = response.text
+        logger.info(f"Generated text: '{response_text}'")
+
+        if not response_text:
+            logger.warning("Empty text generated from Gemini. Skipping TTS.")
+            # Return empty response or error?
+            # Let's return a JSON with no audio but transcript (empty)
+            return JSONResponse({
+                "audio": "",
+                "transcript": "(No response generated)",
+                "mime_type": "audio/mp3"
+            })
+
+        # 2. Synthesize Audio
+        # synthesize_speech returns base64 str (MP3 default)
+        audio_b64 = synthesize_speech(response_text)
+        
+        # 3. Return as JSON
+        # LFM 2.5 server logic also generates text ("text_out").
+        # So we align our mock response to return both.
+        return JSONResponse({
+            "audio": audio_b64,
+            "transcript": response_text,
+            "mime_type": "audio/mp3" # synthesize_speech returns MP3 (or WAV wrapped) base64
+        })
+
+    except Exception as e:
+        logger.error(f"Error in speech_to_speech: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

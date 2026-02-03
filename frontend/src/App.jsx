@@ -15,7 +15,8 @@ const STATE = {
 
 const MODE = {
     LIVE: 'live',
-    STANDARD: 'standard'
+    STANDARD: 'standard', // Gemini TTS
+    LFM: 'lfm' // LFM2.5Audio
 }
 
 const STATUS_LABELS = {
@@ -102,7 +103,7 @@ const PERSONALITIES = [
 
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
-    const [mode, setMode] = useState(MODE.LIVE)
+    const [mode, setMode] = useState(MODE.LFM)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [appState, setAppState] = useState(STATE.INIT)
     const [subtitle, setSubtitle] = useState('')
@@ -112,6 +113,7 @@ function App() {
     const [error, setError] = useState(null)
     const [mouthOpen, setMouthOpen] = useState(false)
     const [user, setUser] = useState(null)
+    const [tosAccepted, setTosAccepted] = useState(() => localStorage.getItem('tos_accepted') === 'true')
 
     // 思考中アニメーション用
     const [thinkingFrame, setThinkingFrame] = useState(0)
@@ -156,6 +158,18 @@ function App() {
         })
         return () => unsubscribe()
     }, [])
+
+    // Auto-start if mic permission already granted
+    useEffect(() => {
+        const micPermissionGranted = localStorage.getItem('mic_permission_granted') === 'true'
+        if (user && tosAccepted && micPermissionGranted && appState === STATE.INIT) {
+            // Auto-start after a short delay to ensure UI is ready
+            const timer = setTimeout(() => {
+                handleStart()
+            }, 500)
+            return () => clearTimeout(timer)
+        }
+    }, [user, tosAccepted])
 
     const handleSignIn = async () => {
         try {
@@ -225,10 +239,204 @@ function App() {
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
 
-    // Sync conversationHistory to Ref
     useEffect(() => {
         conversationHistoryRef.current = conversationHistory
     }, [conversationHistory])
+
+    // LFM Mode Logic: MediaRecorder & VAD
+    const mediaRecorderRef = useRef(null)
+    const audioChunksRef = useRef([])
+    const vadFrameRef = useRef(null)
+    const silenceStartRef = useRef(null)
+    const isSpeakingRef = useRef(false)
+    const speechStartRef = useRef(null)
+
+    const startLFMListening = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            streamRef.current = stream
+
+            // --- VAD Setup ---
+            const audioContext = new AudioContext()
+            // audioContextRef.current = audioContext // Don't overwrite main output context? Or separate? 
+            // Better separate for input analysis to avoid conflict with output playback context state?
+            // Actually, usually we reuse or use separate. Let's use a local one for VAD to be safe/simple, 
+            // or reuse if we want to visualize mic input?
+            // Existing `updateVolume` uses `analyserRef` for visualization. 
+            // Let's REUSE `analyserRef` so standard visualization works too!
+
+            // Note: `startAudioCapture` (Live) sets up analyserRef.
+            // We should do similar here.
+
+            const analyser = audioContext.createAnalyser()
+            analyser.fftSize = 512
+            analyserRef.current = analyser // For visualization loop
+
+            const source = audioContext.createMediaStreamSource(stream)
+            source.connect(analyser)
+            // Do NOT connect to destination, to avoid feedback loop!
+
+            // Reset VAD state
+            silenceStartRef.current = null
+            isSpeakingRef.current = false
+            speechStartRef.current = null
+
+            // Start VAD Loop
+            const checkAudioLevel = () => {
+                if (!analyserRef.current) return
+
+                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+                analyserRef.current.getByteFrequencyData(dataArray)
+
+                // Calculate average volume
+                const average = dataArray.reduce((acc, val) => acc + val, 0) / dataArray.length
+
+                // Thresholds
+                const SPEAKING_THRESHOLD = 50 // Tuning needed? 10-20 might be noise. 50 is safe?
+                // `updateVolume` uses average/40 for visualization.
+                // Let's say if average > 15 (approx 5% volume) it's noise/speech on Mac mic? 
+                // Let's try 30.
+                const THRESHOLD = 20
+
+                if (average > THRESHOLD) {
+                    if (!isSpeakingRef.current) {
+                        console.log("VAD: Speech detected")
+                        isSpeakingRef.current = true
+                        speechStartRef.current = Date.now()
+                    }
+                    silenceStartRef.current = null // User is speaking
+                } else {
+                    if (isSpeakingRef.current) {
+                        // User WAS speaking, now silent
+                        if (!silenceStartRef.current) {
+                            silenceStartRef.current = Date.now()
+                        } else {
+                            // Check duration
+                            const diff = Date.now() - silenceStartRef.current
+                            if (diff > 1200) { // 1.2 seconds silence
+                                console.log("VAD: Silence detected, stopping recording...")
+                                stopLFMListening()
+                                return // End loop
+                            }
+                        }
+                    }
+                }
+                vadFrameRef.current = requestAnimationFrame(checkAudioLevel)
+            }
+            vadFrameRef.current = requestAnimationFrame(checkAudioLevel)
+
+
+            const recorder = new MediaRecorder(stream)
+            mediaRecorderRef.current = recorder
+            audioChunksRef.current = []
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data)
+                }
+            }
+
+            recorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' })
+                // Only submit if we actually detected speech?
+                // Or just always submit if recorded? 
+                // If VAD triggered stop, it means valuable audio exists.
+                // If manual stop, same.
+                // Note: user might click stop immediately without speaking?
+                await handleLFMSubmit(audioBlob)
+            }
+
+            recorder.start()
+            setAppState(STATE.USER_SPEAKING)
+            return true
+        } catch (err) {
+            console.error('LFM Recording Error:', err)
+            setError('マイクへのアクセスエラー')
+            setAppState(STATE.ERROR)
+            return false
+        }
+    }
+
+    const stopLFMListening = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop()
+        }
+        if (vadFrameRef.current) {
+            cancelAnimationFrame(vadFrameRef.current)
+            vadFrameRef.current = null
+        }
+        // Also stop stream/analyser to release mic?
+        // Actually handleStop does that.
+        // But here we might want to keep stream open for faster restart?
+        // For simplicity, we stick to stop everything and restart.
+    }
+
+    const handleLFMSubmit = async (audioBlob) => {
+        setAppState(STATE.THINKING)
+
+        try {
+            const formData = new FormData()
+            formData.append('audio', audioBlob)
+
+            // Add user settings if needed by backend (though current endpoint handles transcription itself)
+            // But main.py speech_to_speech doesn't take metadata yet, it infers context.
+            // For now just send audio.
+
+            const res = await fetch('/api/speech-to-speech', {
+                method: 'POST',
+                body: formData
+            })
+
+            if (!res.ok) throw new Error(await res.text())
+
+            // Response is JSON now: { audio: "base64...", transcript: "..." }
+            const data = await res.json()
+
+            // Decode Audio
+            const binaryString = atob(data.audio)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+            }
+            // Create ArrayBuffer from bytes
+            const arrayBuffer = bytes.buffer
+
+            // Play Audio
+            // We reuse playAudioQueue if we decode it, or just play directly.
+            // playAudioQueue expects Float32Array chunks.
+            // Let's decode entire buffer and push to queue for visualizer support.
+
+            const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
+            audioContextRef.current = audioContext
+
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+            // Convert AudioBuffer to Float32Array for our queue system
+            const float32Data = audioBuffer.getChannelData(0)
+
+            // Split into manageable chunks if needed, or push strictly one.
+            playbackQueueRef.current.push(float32Data)
+
+            // Update History & Subtitles with Transcript
+            if (data.transcript) {
+                const aiMsg = { role: 'assistant', text: data.transcript, timestamp: new Date() }
+                setConversationHistory(prev => [...prev, aiMsg])
+                setSubtitle(data.transcript)
+
+                // If we have user transcript from SpeechRecognition (not in LFM mode usually), we'd start there.
+                // But LFM mode infers user text. If backend returned user text too, we could use it.
+                // Current Gemini impl returns "model" text only.
+            }
+
+            playAudioQueue()
+
+        } catch (e) {
+            console.error(e)
+            setError('LFM Error: ' + e.message)
+            setAppState(STATE.ERROR)
+        }
+    }
 
     // マイク音量を監視してCSS変数を更新
     const updateVolume = useCallback(() => {
@@ -612,6 +820,11 @@ function App() {
                         // already started or other error
                     }
                 }
+            } else if (mode === MODE.LFM && appState !== STATE.ERROR) {
+                // Restart LFM Listening Loop
+                console.log("Restarting LFM Listener...")
+                setAppState(STATE.READY) // Transitional
+                startLFMListening()
             } else {
                 setAppState(STATE.READY)
             }
@@ -668,7 +881,7 @@ function App() {
             // `getAvatarImage` checks `mouthOpen` state.
             // We need to update `mouthOpen` based on output volume.
 
-            if (!analyserRef.current) {
+            if (!analyserRef.current || analyserRef.current.context !== audioContext) {
                 const analyser = audioContext.createAnalyser()
                 analyser.fftSize = 256
                 analyserRef.current = analyser
@@ -739,9 +952,17 @@ function App() {
             const success = await startAudioCapture()
             if (success) {
                 connectWebSocket()
+                // Save mic permission to localStorage on successful start
+                localStorage.setItem('mic_permission_granted', 'true')
             }
+        } else if (mode === MODE.LFM) {
+            await startLFMListening()
+            // Save mic permission to localStorage on successful start
+            localStorage.setItem('mic_permission_granted', 'true')
         } else {
             await startStandardListening()
+            // Save mic permission to localStorage on successful start
+            localStorage.setItem('mic_permission_granted', 'true')
         }
     }
 
@@ -773,6 +994,16 @@ function App() {
             cancelAnimationFrame(animationFrameRef.current)
         }
 
+        // LFM Recorder停止
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop()
+            mediaRecorderRef.current = null
+        }
+        if (vadFrameRef.current) {
+            cancelAnimationFrame(vadFrameRef.current)
+            vadFrameRef.current = null
+        }
+
         // 再生キュークリア
         playbackQueueRef.current = []
         isPlayingRef.current = false
@@ -784,6 +1015,11 @@ function App() {
         setConversationHistory([])
         setMouthOpen(false)
         setError(null)
+    }
+
+    const handleAcceptToS = () => {
+        localStorage.setItem('tos_accepted', 'true')
+        setTosAccepted(true)
     }
 
     const handleAvatarUpload = (type, event) => {
@@ -839,6 +1075,41 @@ function App() {
         })
     }
 
+    // ToS Overlay
+    if (!tosAccepted) {
+        return (
+            <div className="tos-overlay">
+                <div className="tos-container">
+                    <h2 className="tos-title">利用規約</h2>
+                    <div className="tos-content">
+                        <h3>はじめに</h3>
+                        <p>本サービスをご利用いただく前に、以下の利用規約をお読みいただき、同意いただく必要があります。</p>
+
+                        <h3>データの取り扱いについて</h3>
+                        <p>本サービスでは、以下の情報を収集し、研究・調査目的で利用する可能性があります：</p>
+                        <ul>
+                            <li>ユーザーの基本情報（名前、メールアドレスなど）</li>
+                            <li>会話内容および音声データ</li>
+                            <li>サービスの利用状況</li>
+                        </ul>
+
+                        <h3>研究・調査目的での利用</h3>
+                        <p>収集したデータは、音声認識技術の改善、AI応答品質の向上、ユーザー体験の最適化などの研究・調査目的で活用される場合があります。個人を特定できる情報は適切に匿名化され、学術研究やサービス改善のために使用されます。</p>
+
+                        <h3>データの保護</h3>
+                        <p>お預かりしたデータは、適切なセキュリティ対策のもと安全に管理されます。第三者への無断提供は行いません。</p>
+
+                        <h3>同意について</h3>
+                        <p>「同意する」ボタンをクリックすることで、上記の利用規約に同意したものとみなされます。</p>
+                    </div>
+                    <button className="accept-button" onClick={handleAcceptToS}>
+                        同意する
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="app-container">
             {/* メニューボタン */}
@@ -870,27 +1141,20 @@ function App() {
                     >
                         設定
                     </button>
-                </div>
 
-                {/* モード切替スイッチ (メニュー内に追加) */}
-                <div style={{ marginTop: '1rem', padding: '0 1rem', color: 'white' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                        <span style={{ fontSize: '0.8rem' }}>Live API</span>
-                        <div
-                            style={{
-                                width: '36px', height: '20px', background: mode === MODE.LIVE ? '#4285F4' : '#666',
-                                borderRadius: '10px', position: 'relative', transition: 'background 0.3s'
-                            }}
-                            onClick={() => setMode(m => m === MODE.LIVE ? MODE.STANDARD : MODE.LIVE)}
+                    <div style={{ padding: '0.75rem 1rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                        <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
+                        <select
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value)}
+                            className="settings-select"
+                            style={{ padding: '0.4rem', fontSize: '0.9rem' }}
                         >
-                            <div style={{
-                                width: '16px', height: '16px', background: 'white', borderRadius: '50%',
-                                position: 'absolute', top: '2px', left: mode === MODE.LIVE ? '2px' : '18px',
-                                transition: 'left 0.3s'
-                            }} />
-                        </div>
-                        <span style={{ fontSize: '0.8rem' }}>Standard</span>
-                    </label>
+                            <option value={MODE.LFM}>LFM2.5(audio)</option>
+                            <option value={MODE.STANDARD}>Gemini2.5(tts)</option>
+                            <option value={MODE.LIVE}>Gemini2.5(live)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -955,6 +1219,8 @@ function App() {
                             </div>
                         </div>
                     )}
+
+
 
                     {appState === STATE.INIT && (
                         !user ? (
@@ -1022,7 +1288,6 @@ function App() {
                         <h5 className="settings-label">アカウント</h5>
                         {user ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
-                                {user.photoURL && <img src={user.photoURL} alt="Profile" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />}
                                 <div>
                                     <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-primary)' }}>{user.displayName}</p>
                                     <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{user.email}</p>
@@ -1086,7 +1351,7 @@ function App() {
                     </div>
 
                     <div className="settings-section">
-                        <label className="settings-label">アバターの性格・口調</label>
+                        <label className="settings-label">アバター性格</label>
                         <select
                             className="settings-select"
                             value={personality}
