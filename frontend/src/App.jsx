@@ -116,7 +116,7 @@ const PERSONALITIES = [
 
 function App() {
     const [view, setView] = useState(VIEW.CHAT)
-    const [mode, setMode] = useState(MODE.LFM)
+    const [mode, setMode] = useState(() => localStorage.getItem('user_mode') || MODE.LFM)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [appState, setAppState] = useState(STATE.INIT)
     const [subtitle, setSubtitle] = useState('')
@@ -210,17 +210,48 @@ function App() {
         }
     }
 
-    // 設定保存ハンドラ
+    // 設定変更ハンドラ (state更新のみ、localStorageには保存しない)
     const handleUserNameChange = (e) => {
-        const val = e.target.value
-        setUserName(val)
-        localStorage.setItem('user_name', val)
+        setUserName(e.target.value)
     }
 
     const handlePersonalityChange = (e) => {
-        const val = e.target.value
-        setPersonality(val)
-        localStorage.setItem('user_personality', val)
+        setPersonality(e.target.value)
+    }
+
+    // 設定保存ボタン用ステート
+    const [settingsSaved, setSettingsSaved] = useState(false)
+    const savedModeRef = useRef(localStorage.getItem('user_mode') || MODE.LFM)
+
+    const handleSaveSettings = () => {
+        localStorage.setItem('user_name', userName)
+        localStorage.setItem('user_personality', personality)
+        const prevMode = savedModeRef.current
+        localStorage.setItem('user_mode', mode)
+        savedModeRef.current = mode
+
+        // モードが変わった場合はセッション終了
+        if (prevMode !== mode && appState !== STATE.INIT) {
+            handleEndSession()
+        }
+
+        setSettingsSaved(true)
+        setTimeout(() => setSettingsSaved(false), 2000)
+    }
+
+    // ラベル取得ヘルパー
+    const getModeLabel = (m) => {
+        switch (m) {
+            case MODE.LFM: return 'LFM2.5(audio)'
+            case MODE.STANDARD: return 'Gemini2.5(tts)'
+            case MODE.LIVE: return 'Gemini2.5(live)'
+            default: return m
+        }
+    }
+
+    const getPersonalityLabel = () => {
+        const found = PERSONALITIES.find(p => p.prompt === personality)
+        return found ? found.label : 'カスタム'
     }
 
     // APIコストトラッキング
@@ -503,13 +534,18 @@ function App() {
             const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
             audioContextRef.current = audioContext
 
+            // Resume AudioContext if suspended
+            if (audioContext.state === 'suspended') {
+                debugLog('LFM: AudioContext suspended, resuming...')
+                await audioContext.resume()
+            }
+
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
             // Convert AudioBuffer to Float32Array for our queue system
             const float32Data = audioBuffer.getChannelData(0)
 
-            // Split into manageable chunks if needed, or push strictly one.
-            playbackQueueRef.current.push(float32Data)
+            playbackQueueRef.current.push({ data: float32Data, sampleRate: audioBuffer.sampleRate })
 
             // Update History & Subtitles with Transcript
             if (data.transcript) {
@@ -827,10 +863,15 @@ function App() {
         }
 
         recognition.onend = () => {
-            // Auto-restart if we are still in READY state and not playing/thinking
-            // But for simple turn-based, we wait for AI response to finish before listening again.
-            // We will trigger listening again in playAudioQueue's onended or similar if we want full hands-free.
-            // For now, let's keep it simple: Stop listening when processing.
+            // no-speech タイムアウト等で認識が終了した場合、自動再起動
+            if (appState === STATE.READY || appState === STATE.USER_SPEAKING) {
+                debugLog("SpeechRecognition ended, auto-restarting...")
+                try {
+                    recognition.start()
+                } catch (e) {
+                    debugError("SpeechRecognition restart failed:", e)
+                }
+            }
         }
 
         recognitionRef.current = recognition
@@ -898,11 +939,18 @@ function App() {
                 // decodeAudioData で WAV/MP3 等を正しくデコード
                 const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
                 audioContextRef.current = audioContext
+
+                // Resume AudioContext if suspended
+                if (audioContext.state === 'suspended') {
+                    debugLog('Standard: AudioContext suspended, resuming...')
+                    await audioContext.resume()
+                }
+
                 const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
                 const float32Array = audioBuffer.getChannelData(0)
-                debugLog("Float32 samples:", float32Array.length)
+                debugLog("Float32 samples:", float32Array.length, "sampleRate:", audioBuffer.sampleRate)
 
-                playbackQueueRef.current.push(float32Array)
+                playbackQueueRef.current.push({ data: float32Array, sampleRate: audioBuffer.sampleRate })
 
                 // Count Output Tokens (Audio)
                 const durationSec = float32Array.length / audioBuffer.sampleRate
@@ -966,59 +1014,35 @@ function App() {
         isPlayingRef.current = true
         setAppState(STATE.AVATAR_SPEAKING)
 
-        const float32Array = playbackQueueRef.current.shift()
+        const entry = playbackQueueRef.current.shift()
+        const pcmData = entry.data || entry // { data, sampleRate } or plain Float32Array (LIVE mode)
+        const sampleRate = entry.sampleRate || 24000
 
         try {
             const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
             audioContextRef.current = audioContext
 
-            // Loop for visualization
-            // Since we have the full buffer, we can just play it.
-            // But for lip sync, we need to analyze time domain or frequency.
-            // Or just simple amplitude check on pre-computed chunks?
-            // "Mouth Open" logic in original code was: check every sample? That's heavy for large buffer.
-            // It was chunked in original? 
-            // Original: "shift()" implies chunks.
-            // Live API sends chunks. Standard Mode sends ONE BIG CHUNK.
-            // If we play one big chunk, "Mouth Open" will be static or we need real-time analysis.
-            // AnalyzerNode can handle real-time analysis!
-            // Let's use AnalyzerNode for lip sync instead of manual loop!
-            // NOTE: Original code used manual loop on `float32Array` to set `MouthOpen`.
-            // "if (Math.abs(float32Array[i]) > 0.1) setMouthOpen(true)" -> This sets it for the whole chunk duration??
-            // React state update in loop is BAD.
-            // Actually original code did:
-            // "for (let i...) { ... setMouthOpen(true) }" -> This would re-render crazily or just batch.
-            // If the chunk is small (Live API), it works.
-            // IF THE CHUNK IS LARGE (Standard Mode), this is terrible. it will just set it to true/false instantly.
+            // CRITICAL: Resume AudioContext if suspended (browser autoplay policy)
+            if (audioContext.state === 'suspended') {
+                debugLog('AudioContext is suspended, resuming...')
+                await audioContext.resume()
+                debugLog('AudioContext resumed, state:', audioContext.state)
+            }
 
-            // Better Lip Sync approach:
-            // Connect source -> Analyser -> Destination.
-            // Use `requestAnimationFrame` to check Analyser volume and set Mouth.
-            // We already have `updateVolume` using `analyserRef`!
-            // `updateVolume` checks `analyserRef`.
-            // So we just need to route AudioSource -> Analyser.
-
-            const audioBuffer = audioContext.createBuffer(1, float32Array.length, 24000)
-            audioBuffer.copyToChannel(float32Array, 0)
+            const audioBuffer = audioContext.createBuffer(1, pcmData.length, sampleRate)
+            audioBuffer.copyToChannel(pcmData, 0)
 
             const source = audioContext.createBufferSource()
             source.buffer = audioBuffer
 
-            // Connect to existing analyser if present, or create one.
-            // In Live Mode, analyser is connected to Mic Input.
-            // We want it connected to Output for Avatar Speaking visualization?
-            // Or do we have separate visualizer?
-            // "updateVolume" uses `analyserRef` and sets `--mic-volume`.
-            // User probably wants mouth movement.
-            // `getAvatarImage` checks `mouthOpen` state.
-            // We need to update `mouthOpen` based on output volume.
-
+            // Create or reuse analyser for mouth animation
             if (!analyserRef.current || analyserRef.current.context !== audioContext) {
                 const analyser = audioContext.createAnalyser()
                 analyser.fftSize = 256
                 analyserRef.current = analyser
             }
 
+            // Connect: Source -> Analyser -> Destination
             source.connect(analyserRef.current)
             analyserRef.current.connect(audioContext.destination)
 
@@ -1357,24 +1381,6 @@ function App() {
                         設定
                     </button>
 
-                    <div style={{ padding: '0.75rem 1rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                        <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
-                        <select
-                            value={mode}
-                            onChange={(e) => {
-                                if (appState !== STATE.INIT) {
-                                    handleEndSession()
-                                }
-                                setMode(e.target.value)
-                            }}
-                            className="settings-select"
-                            style={{ padding: '0.4rem', fontSize: '0.9rem' }}
-                        >
-                            <option value={MODE.LFM}>LFM2.5(audio)</option>
-                            <option value={MODE.STANDARD}>Gemini2.5(tts)</option>
-                            <option value={MODE.LIVE}>Gemini2.5(live)</option>
-                        </select>
-                    </div>
                 </div>
             </div>
 
@@ -1399,6 +1405,12 @@ function App() {
                             <span className={`status-dot ${appState !== STATE.INIT ? 'active' : ''}`}></span>
                             <span>{STATUS_LABELS[appState]}</span>
                         </div>
+                    </div>
+
+                    <div className="session-info">
+                        <span>{getModeLabel(mode)}</span>
+                        <span className="session-info-divider">|</span>
+                        <span>{getPersonalityLabel()}</span>
                     </div>
 
                     {/* API コスト表示 */}
@@ -1577,6 +1589,19 @@ function App() {
                     </div>
 
                     <div className="settings-section">
+                        <label className="settings-label">会話モデル</label>
+                        <select
+                            className="settings-select"
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value)}
+                        >
+                            <option value={MODE.LFM}>LFM2.5(audio)</option>
+                            <option value={MODE.STANDARD}>Gemini2.5(tts)</option>
+                            <option value={MODE.LIVE}>Gemini2.5(live)</option>
+                        </select>
+                    </div>
+
+                    <div className="settings-section">
                         <label className="settings-label">あなたの名前 (呼び名)</label>
                         <input
                             type="text"
@@ -1601,6 +1626,13 @@ function App() {
                             ))}
                         </select>
                     </div>
+
+                    <button
+                        className="save-button"
+                        onClick={handleSaveSettings}
+                    >
+                        {settingsSaved ? '保存しました' : '変更を保存'}
+                    </button>
 
                     <h4 className="settings-title" style={{ marginTop: '2rem' }}>アバター画像設定</h4>
                     <div className="avatar-upload-grid">

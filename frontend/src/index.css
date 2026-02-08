@@ -613,6 +613,40 @@ body {
   padding-right: 2.5rem;
 }
 
+/* Session Info Bar (Chat View) */
+.session-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: 0.25rem 0;
+}
+
+.session-info-divider {
+  opacity: 0.4;
+}
+
+/* Save Button */
+.save-button {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 0.5rem;
+}
+
+.save-button:hover {
+  opacity: 0.9;
+}
+
 /* Terms of Service Overlay */
 .tos-overlay {
   position: fixed;
