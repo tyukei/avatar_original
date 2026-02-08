@@ -304,10 +304,15 @@ function App() {
 
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
+    const modeRef = useRef(mode) // Sync ref for async callbacks (playAudioQueue etc.)
 
     useEffect(() => {
         conversationHistoryRef.current = conversationHistory
     }, [conversationHistory])
+
+    useEffect(() => {
+        modeRef.current = mode
+    }, [mode])
 
     // LFM Mode Logic: MediaRecorder & VAD
     const mediaRecorderRef = useRef(null)
@@ -887,24 +892,20 @@ function App() {
                 if (typeof data.audio !== 'string' || data.audio.trim() === '') {
                     throw new Error("無効な音声データです")
                 }
-                // Decode PCM Base64 (audio/L16;codec=pcm;rate=24000)
                 const bytes = base64ToUint8Array(data.audio)
-                const len = bytes.length
-                debugLog("Audio binary length:", len)
+                debugLog("Audio binary length:", bytes.length)
 
-                // Convert bytes to Float32 immediately (assuming Little Endian Int16)
-                const int16Array = new Int16Array(bytes.buffer)
-                const float32Array = new Float32Array(int16Array.length)
-                for (let i = 0; i < int16Array.length; i++) {
-                    float32Array[i] = int16Array[i] / 32768.0
-                }
+                // decodeAudioData で WAV/MP3 等を正しくデコード
+                const audioContext = audioContextRef.current || new AudioContext({ sampleRate: 24000 })
+                audioContextRef.current = audioContext
+                const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+                const float32Array = audioBuffer.getChannelData(0)
                 debugLog("Float32 samples:", float32Array.length)
 
                 playbackQueueRef.current.push(float32Array)
 
                 // Count Output Tokens (Audio)
-                // Approx estimate for now.
-                const durationSec = float32Array.length / 24000
+                const durationSec = float32Array.length / audioBuffer.sampleRate
                 setTokenStats(prev => ({ ...prev, stdOutput: prev.stdOutput + Math.ceil(durationSec * 30) }))
 
                 if (!isPlayingRef.current) {
@@ -934,12 +935,12 @@ function App() {
             lastAudioEndedTimeRef.current = Date.now() // Set timestamp for echo cancellation
             setMouthOpen(false)
             // If Standard Mode, maybe restart listening here?
-            if (mode === MODE.STANDARD && appState !== STATE.ERROR) {
+            if (modeRef.current === MODE.STANDARD && appState !== STATE.ERROR) {
                 // Restart listening
                 // Need to delay slightly or just call startStandardListening
                 // Check if we are still "active" (not stopped by user)
                 if (streamRef.current === null && recognitionRef.current) {
-                    // Wait, in Standard Mode we don't have streamRef usually? 
+                    // Wait, in Standard Mode we don't have streamRef usually?
                     // Actually startStandardListening doesn't set streamRef.
                     // But we should check if we should be running.
                     // Simple check: Is appState back to READY? No, it's AVATAR_SPEAKING.
@@ -951,7 +952,7 @@ function App() {
                         // already started or other error
                     }
                 }
-            } else if (mode === MODE.LFM && appState !== STATE.ERROR) {
+            } else if (modeRef.current === MODE.LFM && appState !== STATE.ERROR) {
                 // Restart LFM Listening Loop
                 debugLog("Restarting LFM Listener...")
                 setAppState(STATE.READY) // Transitional
@@ -1360,7 +1361,12 @@ function App() {
                         <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'block' }}>会話モデル</label>
                         <select
                             value={mode}
-                            onChange={(e) => setMode(e.target.value)}
+                            onChange={(e) => {
+                                if (appState !== STATE.INIT) {
+                                    handleEndSession()
+                                }
+                                setMode(e.target.value)
+                            }}
                             className="settings-select"
                             style={{ padding: '0.4rem', fontSize: '0.9rem' }}
                         >
