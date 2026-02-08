@@ -147,15 +147,18 @@ def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
     return buffer.getvalue()
 
 
-def synthesize_speech(text: str) -> str:
+def synthesize_speech(text: str, personality: str = "") -> str:
     """Synthesizes speech using Gemini 2.5 Flash TTS model via Generative AI API."""
-    logger.debug(f"[TTS] Starting synthesis for text: '{text}'")
+    logger.debug(f"[TTS] Starting synthesis for text: '{text}', personality: '{personality}'")
     try:
         # Use the specific TTS model
         logger.debug(f"[TTS] Calling Gemini TTS model")
 
         # Request AUDIO modality explicitly
-        prompt = f"Please read the following text: {text}"
+        if personality:
+             prompt = f"Please read the following text acting as: {personality}. Text: {text}"
+        else:
+             prompt = f"Please read the following text: {text}"
 
         resp = client.models.generate_content(
             model="models/gemini-2.5-flash-preview-tts",
@@ -233,7 +236,7 @@ async def chat_text_to_audio(request: TextToAudioRequest):
         response_text = response.text
 
         # 2. Synthesize Audio
-        audio_base64 = synthesize_speech(response_text)
+        audio_base64 = synthesize_speech(response_text, request.personality)
 
         # 3. Return
         return JSONResponse(
@@ -300,7 +303,7 @@ async def speech_to_speech(
 
         # 2. Synthesize Audio
         # synthesize_speech returns base64 str (MP3 default)
-        audio_b64 = synthesize_speech(response_text)
+        audio_b64 = synthesize_speech(response_text, personality)
         logger.debug(f"Audio base64 generated, length: {len(audio_b64)} chars")
         logger.debug(f"Audio base64 preview: {audio_b64[:50]}...")
 
