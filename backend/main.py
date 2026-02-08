@@ -386,7 +386,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Send setup message
             setup_msg = {
                 "setup": {
-                    "model": "models/gemini-2.5-flash-native-audio-preview-12-2025",
+                    "model": "models/gemini-2.0-flash-exp",
                     "generationConfig": {
                         "responseModalities": ["AUDIO"],
                         "speechConfig": {
@@ -396,8 +396,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         },
                     },
                     "systemInstruction": {"parts": [{"text": system_instruction_text}]},
-                    "outputAudioTranscription": {},
-                    "inputAudioTranscription": {},
                 }
             }
 
