@@ -299,6 +299,7 @@ function App() {
     const streamRef = useRef(null)
     const playbackQueueRef = useRef([])
     const currentSourceRef = useRef(null) // Active audio source for stopping
+    const lastAudioEndedTimeRef = useRef(0) // Timestamp when last audio ended
 
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
@@ -714,6 +715,11 @@ function App() {
 
             // AudioWorkletからのデータをWebSocketで送信
             workletNode.port.onmessage = (event) => {
+                // Return if avatar is speaking or recently finished (1s echo cancellation buffer)
+                if (isPlayingRef.current || Date.now() - lastAudioEndedTimeRef.current < 1000) {
+                    return
+                }
+
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     const audioData = event.data // Int16Array
 
@@ -898,6 +904,7 @@ function App() {
     const playAudioQueue = async () => {
         if (playbackQueueRef.current.length === 0) {
             isPlayingRef.current = false
+            lastAudioEndedTimeRef.current = Date.now() // Set timestamp for echo cancellation
             setMouthOpen(false)
             // If Standard Mode, maybe restart listening here?
             if (mode === MODE.STANDARD && appState !== STATE.ERROR) {
