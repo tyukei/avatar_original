@@ -312,6 +312,22 @@ body {
   align-items: flex-end;
 }
 
+/* Logo System */
+.logo-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.logo-image {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
 
 .hamburger-button {
   display: flex;

@@ -1208,6 +1208,11 @@ function App() {
 
     return (
         <div className="app-container">
+            {/* Logo */}
+            <div className="logo-container">
+                <img src="/logo/nantomo_logo.png" alt="Logo" className="logo-image" />
+            </div>
+
             {/* メニューボタン */}
             <div className="menu-container">
                 <button
