@@ -1038,7 +1038,9 @@ function App() {
 
             source.onended = () => {
                 currentSourceRef.current = null
-                playAudioQueue()
+                if (isPlayingRef.current) {
+                    playAudioQueue()
+                }
             }
 
             currentSourceRef.current = source
@@ -1103,8 +1105,14 @@ function App() {
     }
 
     const handleEndSession = () => {
-        // Stop current audio if playing
+        // 1. Reset State & Queue FIRST to prevent recursive callbacks
+        playbackQueueRef.current = []
+        isPlayingRef.current = false
+        setMouthOpen(false)
+
+        // 2. Stop current audio if playing
         if (currentSourceRef.current) {
+            currentSourceRef.current.onended = null // Prevent callback
             try {
                 currentSourceRef.current.stop()
             } catch (e) {
@@ -1150,22 +1158,23 @@ function App() {
             vadFrameRef.current = null
         }
 
-        // 再生キュークリア
-        playbackQueueRef.current = []
-        isPlayingRef.current = false
-
         // 状態リセット
         setAppState(STATE.INIT)
         setSubtitle('')
         setCurrentResponse('')
         setConversationHistory([])
-        setMouthOpen(false)
         setError(null)
     }
 
     const handleStopAudio = () => {
-        // Stop current audio if playing
+        // 1. Reset Queue & State
+        playbackQueueRef.current = []
+        isPlayingRef.current = false
+        setMouthOpen(false)
+
+        // 2. Stop current audio
         if (currentSourceRef.current) {
+            currentSourceRef.current.onended = null // Prevent callback
             try {
                 currentSourceRef.current.stop()
             } catch (e) {
@@ -1173,11 +1182,6 @@ function App() {
             }
             currentSourceRef.current = null
         }
-
-        // Clear playback queue
-        playbackQueueRef.current = []
-        isPlayingRef.current = false
-        setMouthOpen(false)
 
         // Reset state to READY if it was speaking or thinking
         if (appState === STATE.AVATAR_SPEAKING || appState === STATE.THINKING) {
