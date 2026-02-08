@@ -323,16 +323,20 @@ function App() {
             streamRef.current = stream
 
             // --- VAD Setup ---
-            const audioContext = new AudioContext()
-            // audioContextRef.current = audioContext // Don't overwrite main output context? Or separate? 
-            // Better separate for input analysis to avoid conflict with output playback context state?
-            // Actually, usually we reuse or use separate. Let's use a local one for VAD to be safe/simple, 
-            // or reuse if we want to visualize mic input?
-            // Existing `updateVolume` uses `analyserRef` for visualization. 
-            // Let's REUSE `analyserRef` so standard visualization works too!
+            // Ensure clean start or reuse? LFM might need specific sample rate?
+            // VAD doesn't strictly require 16k, but usually good.
+            if (audioContextRef.current) {
+                await audioContextRef.current.close()
+                audioContextRef.current = null
+            }
 
-            // Note: `startAudioCapture` (Live) sets up analyserRef.
-            // We should do similar here.
+            const audioContext = new AudioContext()
+            audioContextRef.current = audioContext // Store it!
+
+            // Resume immediately
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume()
+            }
 
             const analyser = audioContext.createAnalyser()
             analyser.fftSize = 512
@@ -691,8 +695,19 @@ function App() {
             })
             streamRef.current = stream
 
+            // Ensure clean start
+            if (audioContextRef.current) {
+                await audioContextRef.current.close()
+                audioContextRef.current = null
+            }
+
             const audioContext = new AudioContext({ sampleRate: 16000 })
             audioContextRef.current = audioContext
+
+            // Resume immediately (User Gesture likely active from handleStart)
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume()
+            }
 
             // AnalyserNode設定
             const analyser = audioContext.createAnalyser()
@@ -767,6 +782,17 @@ function App() {
         if (!SpeechRecognition) {
             alert("このブラウザは音声認識をサポートしていません")
             return false
+        }
+
+        // Standard Mode - Output AudioContext preparation
+        if (audioContextRef.current) {
+            await audioContextRef.current.close()
+            audioContextRef.current = null
+        }
+        const audioContext = new AudioContext({ sampleRate: 24000 }) // Standard Output
+        audioContextRef.current = audioContext
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume()
         }
 
         const recognition = new SpeechRecognition()
@@ -1050,14 +1076,7 @@ function App() {
                 return
             }
 
-            // Ensure AudioContext is initialized and resumed within User Gesture
-            if (!audioContextRef.current) {
-                audioContextRef.current = new AudioContext({ sampleRate: 24000 })
-            }
-            if (audioContextRef.current.state === 'suspended') {
-                await audioContextRef.current.resume()
-            }
-            debugLog("AudioContext State:", audioContextRef.current.state)
+            debugLog("AudioContext State:", audioContextRef.current?.state)
 
             // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
             if (mode === MODE.LIVE) {
