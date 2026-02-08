@@ -1118,23 +1118,59 @@ function App() {
         setTosAccepted(true)
     }
 
-    const handleAvatarUpload = (type, event) => {
+    // 画像リサイズヘルパー
+    const resizeImage = (file, maxWidth, maxHeight, quality = 0.7) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.readAsDataURL(file)
+            reader.onload = (event) => {
+                const img = new Image()
+                img.src = event.target.result
+                img.onload = () => {
+                    let width = img.width
+                    let height = img.height
+
+                    if (width > maxWidth || height > maxHeight) {
+                        const ratio = Math.min(maxWidth / width, maxHeight / height)
+                        width *= ratio
+                        height *= ratio
+                    }
+
+                    const canvas = document.createElement('canvas')
+                    canvas.width = width
+                    canvas.height = height
+                    const ctx = canvas.getContext('2d')
+                    ctx.drawImage(img, 0, 0, width, height)
+
+                    resolve(canvas.toDataURL('image/jpeg', quality))
+                }
+                img.onerror = (error) => reject(error)
+            }
+            reader.onerror = (error) => reject(error)
+        })
+    }
+
+    const handleAvatarUpload = async (type, event) => {
         const file = event.target.files[0]
         if (file) {
-            const reader = new FileReader()
-            reader.onloadend = () => {
-                const base64 = reader.result
+            try {
+                // Resize image to max 512x512, 70% quality
+                const resizedBase64 = await resizeImage(file, 512, 512, 0.7)
+
                 setCustomAvatars(prev => {
-                    const next = { ...prev, [type]: base64 }
+                    const next = { ...prev, [type]: resizedBase64 }
                     try {
                         localStorage.setItem('custom_avatars', JSON.stringify(next))
                     } catch (e) {
                         debugError('Failed to save to localStorage:', e)
+                        alert("画像の保存に失敗しました。容量制限の可能性があります。")
                     }
                     return next
                 })
+            } catch (error) {
+                console.error("Image resize error:", error)
+                alert("画像の処理に失敗しました。")
             }
-            reader.readAsDataURL(file)
         }
     }
 
