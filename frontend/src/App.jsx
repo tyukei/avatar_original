@@ -298,6 +298,7 @@ function App() {
 
     const streamRef = useRef(null)
     const playbackQueueRef = useRef([])
+    const currentSourceRef = useRef(null) // Active audio source for stopping
 
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
@@ -1002,13 +1003,16 @@ function App() {
             requestAnimationFrame(checkMouth)
 
             source.onended = () => {
+                currentSourceRef.current = null
                 playAudioQueue()
             }
 
+            currentSourceRef.current = source
             source.start()
         } catch (err) {
             debugError('Audio playback error:', err)
             isPlayingRef.current = false
+            currentSourceRef.current = null
             playAudioQueue()
         }
     }
@@ -1062,7 +1066,17 @@ function App() {
         }
     }
 
-    const handleStop = () => {
+    const handleEndSession = () => {
+        // Stop current audio if playing
+        if (currentSourceRef.current) {
+            try {
+                currentSourceRef.current.stop()
+            } catch (e) {
+                // ignore
+            }
+            currentSourceRef.current = null
+        }
+
         // WebSocket切断
         if (wsRef.current) {
             wsRef.current.close()
@@ -1111,6 +1125,28 @@ function App() {
         setConversationHistory([])
         setMouthOpen(false)
         setError(null)
+    }
+
+    const handleStopAudio = () => {
+        // Stop current audio if playing
+        if (currentSourceRef.current) {
+            try {
+                currentSourceRef.current.stop()
+            } catch (e) {
+                // ignore
+            }
+            currentSourceRef.current = null
+        }
+
+        // Clear playback queue
+        playbackQueueRef.current = []
+        isPlayingRef.current = false
+        setMouthOpen(false)
+
+        // Reset state to READY if it was speaking or thinking
+        if (appState === STATE.AVATAR_SPEAKING || appState === STATE.THINKING) {
+            setAppState(STATE.READY)
+        }
     }
 
     const handleAcceptToS = () => {
@@ -1400,9 +1436,14 @@ function App() {
                     )}
 
                     {appState !== STATE.INIT && appState !== STATE.ERROR && (
-                        <button className="stop-button" onClick={handleStop}>
-                            終了する
-                        </button>
+                        <div className="control-buttons">
+                            <button className="interrupt-button" onClick={handleStopAudio}>
+                                音声停止
+                            </button>
+                            <button className="stop-button" onClick={handleEndSession}>
+                                セッション終了
+                            </button>
+                        </div>
                     )}
 
                     {error && (

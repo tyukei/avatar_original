@@ -190,8 +190,8 @@ body {
 
 /* Stop Button */
 .stop-button {
-  padding: 1rem 3rem;
-  font-size: 1.1rem;
+  padding: 1rem 2rem;
+  font-size: 1rem;
   font-weight: 600;
   color: white;
   background: linear-gradient(135deg, #ef4444, #dc2626);
@@ -205,6 +205,33 @@ body {
 .stop-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 30px rgba(239, 68, 68, 0.5);
+}
+
+/* Control Buttons */
+.control-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Interrupt Button (Orange) */
+.interrupt-button {
+  padding: 1rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+}
+
+.interrupt-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(245, 158, 11, 0.5);
 }
 
 /* Error Message */
