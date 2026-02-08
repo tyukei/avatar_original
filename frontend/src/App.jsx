@@ -300,6 +300,7 @@ function App() {
     const playbackQueueRef = useRef([])
     const currentSourceRef = useRef(null) // Active audio source for stopping
     const lastAudioEndedTimeRef = useRef(0) // Timestamp when last audio ended
+    const [isStarting, setIsStarting] = useState(false) // State for start button feedback
 
     const isPlayingRef = useRef(false)
     const conversationHistoryRef = useRef(conversationHistory) // Sync ref for callbacks
@@ -1040,36 +1041,45 @@ function App() {
     }, [])
 
     const handleStart = async () => {
-        if (!auth.currentUser) {
-            alert("ログインが必要です")
-            return
-        }
+        if (isStarting) return
+        setIsStarting(true)
 
-        // Ensure AudioContext is initialized and resumed within User Gesture
-        if (!audioContextRef.current) {
-            audioContextRef.current = new AudioContext({ sampleRate: 24000 })
-        }
-        if (audioContextRef.current.state === 'suspended') {
-            await audioContextRef.current.resume()
-        }
-        debugLog("AudioContext State:", audioContextRef.current.state)
+        try {
+            if (!auth.currentUser) {
+                alert("ログインが必要です")
+                return
+            }
 
-        // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
-        if (mode === MODE.LIVE) {
-            const success = await startAudioCapture()
-            if (success) {
-                connectWebSocket()
+            // Ensure AudioContext is initialized and resumed within User Gesture
+            if (!audioContextRef.current) {
+                audioContextRef.current = new AudioContext({ sampleRate: 24000 })
+            }
+            if (audioContextRef.current.state === 'suspended') {
+                await audioContextRef.current.resume()
+            }
+            debugLog("AudioContext State:", audioContextRef.current.state)
+
+            // 先にマイク権限を要求 (Standardでも必要？ Web Speech APIはMic使うがGetUserMediaとは別かも。でも統一感のために。)
+            if (mode === MODE.LIVE) {
+                const success = await startAudioCapture()
+                if (success) {
+                    connectWebSocket()
+                    // Save mic permission to localStorage on successful start
+                    localStorage.setItem('mic_permission_granted', 'true')
+                }
+            } else if (mode === MODE.LFM) {
+                await startLFMListening()
+                // Save mic permission to localStorage on successful start
+                localStorage.setItem('mic_permission_granted', 'true')
+            } else {
+                await startStandardListening()
                 // Save mic permission to localStorage on successful start
                 localStorage.setItem('mic_permission_granted', 'true')
             }
-        } else if (mode === MODE.LFM) {
-            await startLFMListening()
-            // Save mic permission to localStorage on successful start
-            localStorage.setItem('mic_permission_granted', 'true')
-        } else {
-            await startStandardListening()
-            // Save mic permission to localStorage on successful start
-            localStorage.setItem('mic_permission_granted', 'true')
+        } catch (e) {
+            debugError(e)
+        } finally {
+            setIsStarting(false)
         }
     }
 
@@ -1436,8 +1446,16 @@ function App() {
                                 </button>
                             </div>
                         ) : (
-                            <button className="start-button" onClick={handleStart}>
-                                開始する
+                            <button
+                                className="start-button"
+                                onClick={handleStart}
+                                disabled={isStarting}
+                                style={{
+                                    opacity: isStarting ? 0.7 : 1,
+                                    cursor: isStarting ? 'wait' : 'pointer'
+                                }}
+                            >
+                                {isStarting ? '起動中...' : '開始する'}
                             </button>
                         )
                     )}
