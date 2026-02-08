@@ -1209,8 +1209,9 @@ function App() {
     return (
         <div className="app-container">
             {/* Logo */}
-            <div className="logo-container">
+            <div className="logo-container" onClick={() => setView(VIEW.CHAT)}>
                 <img src="/logo/nantomo_logo.png" alt="Logo" className="logo-image" />
+                <p className="logo-subtitle">なんてことないLLMと、友達になる実験</p>
             </div>
 
             {/* メニューボタン */}
