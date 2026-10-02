@@ -825,6 +825,17 @@ function App() {
             return false
         }
 
+        // マイク許可を明示的に取得（Safari 対応 + ブラウザの許可ダイアログ表示）
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            stream.getTracks().forEach(track => track.stop())
+        } catch (err) {
+            debugError('Mic permission denied:', err)
+            setError('マイクへのアクセスが拒否されました')
+            setAppState(STATE.ERROR)
+            return false
+        }
+
         // Standard Mode - Output AudioContext preparation
         if (audioContextRef.current) {
             await audioContextRef.current.close()
@@ -864,7 +875,8 @@ function App() {
 
         recognition.onend = () => {
             // no-speech タイムアウト等で認識が終了した場合、自動再起動
-            if (appState === STATE.READY || appState === STATE.USER_SPEAKING) {
+            // recognitionRef がこのインスタンスを指していればセッション有効
+            if (recognitionRef.current === recognition) {
                 debugLog("SpeechRecognition ended, auto-restarting...")
                 try {
                     recognition.start()
